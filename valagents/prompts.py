@@ -29,3 +29,26 @@ SUB-CLAIMS:
 {subclaims}
 End with exactly:
 COVERS: complete|gap | MISSING: <description|none>"""
+
+GROUNDER_CLAIM = """Assess whether the literature supports this sub-claim, and identify INDEPENDENT \
+sources (distinct authors/groups — not the same lab citing itself).
+SUB-CLAIM ({ctype}): {statement}
+RETRIEVED LITERATURE:
+{articles}
+End with exactly:
+CLAIM: {cid} | SUPPORT: supported|unsupported|uncertain | INDEPENDENT_SOURCES: <n> | SOURCES: <locator(author)…|none> | BASIS: <…>"""
+
+GROUNDER_NOVELTY = """Position this claim against the closest prior work and name the delta — the \
+specific thing it asserts that prior work does not.
+CLAIM: {formal}
+RETRIEVED LITERATURE:
+{articles}
+End with exactly:
+CLOSEST_PRIOR: <…> | DELTA: <…> | POSITION: new|special_case|restatement"""
+
+PROVER = """Build the chain from premises to this sub-claim. For a definitional claim, check it is \
+coherent and non-circular; for mathematical/mechanistic, sketch and check the derivation/causal chain. \
+Flag gaps rather than paper over them.
+SUB-CLAIM ({ctype}): {statement}
+End with exactly:
+DERIVATION: complete|gapped | GAPS: <ids|none> | FATAL_GAP: yes|no"""

@@ -52,6 +52,20 @@ def format_articles(articles: list[Article]) -> str:
     )
 
 
+async def search_articles(backend, query: str, max_results: int = 5) -> tuple[str, list[Article]]:
+    """Search via ``backend`` and return both the formatted prompt string and the raw Article list.
+    On any failure (no backend, network error, rate limit) return ("", []) so callers degrade
+    gracefully — mirrors the fail-soft contract of safe_search."""
+    if backend is None:
+        return "", []
+    try:
+        articles = await backend.search(query, max_results=max_results)
+        return format_articles(articles), articles
+    except Exception as exc:
+        log.warning("grounding search failed (%s); falling back to parametric reasoning", exc)
+        return "", []
+
+
 async def safe_search(backend, query: str, max_results: int = 5) -> str:
     """Search via ``backend`` and return a formatted article block. On ANY failure
     (no backend, rate limit / HTTP 429, network error) return "" so the calling agent

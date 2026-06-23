@@ -9,6 +9,9 @@ class Source(BaseModel):
     author: str | None = None
     group: str | None = None
     relation: Literal["independent", "same_author", "same_group", "self_citation", "unknown"] = "unknown"
+    title: str | None = None
+    url: str | None = None
+    year: str | None = None
 
 class CheckRecord(BaseModel):
     lens: Literal["grounder", "prover", "redteam"]
