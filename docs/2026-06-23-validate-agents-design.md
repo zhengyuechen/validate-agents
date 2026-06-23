@@ -411,3 +411,26 @@ Seed: *"adding an antisymmetric curl term to gradient descent helps escape saddl
 - **D11** *(rev 2, #5)* **Fan-out policy in Spec 1, execution in Spec 4** — load-bearing `uncertain` nodes require `fanout_N` **diverse-type** lenses before finalizing; value is disagreement-detection, not agreement-as-corroboration (repetition ≠ corroboration — same correlation D8 guards for sources). The append-only join already supports it; only the trigger is new.
 - **D12** *(rev 2, minor-1)* **Empty-decomposition guard** — degenerate Decomposer → retry → `refuted`/`ill_formed`; closes a totality hole.
 - **Limit (rev 2, minor-2)** — `internally_validated` = "survived the checks this system can run," never "true"; every lens shares the base model's blind spots. Sentence ships in the report output, not just the spec.
+
+---
+
+## 10. References & citations (added 2026-06-23)
+
+The system surfaces the literature its verdict rests on as a citable bibliography, merged from two origins.
+
+- **Retrieved** — every source the Grounder pulls during a run. The arXiv `Article` metadata (title/URL/year) is **captured at grounding time**, not discarded.
+- **Provided** — an optional user file of bare identifiers (`--references refs.txt`: arXiv links/IDs or DOIs, one per line, or a JSON array). Each is **resolved** to full metadata; you never type bibliographic entries.
+
+**`Reference` model** (`valagents/references.py` — deliberately *not* in `artifact.py`, so the gate stays untouched): `key` (BibTeX), `number` (`[n]`), `title`, `authors[]`, `year`, `url`, `locator`, `origin: provided|retrieved`, `relation` (carried from `Source` — independent/same_author/…), `unresolved: bool`, `cited_by: [claim_id]`.
+
+**Resolver** (injectable, like `FakeLLM`): detects identifier kind → fetches metadata. arXiv via the `arxiv` lib (the same one grounding uses); DOI via Crossref (`api.crossref.org/works/{doi}`) over `httpx`. **Fail-soft** — an unresolvable id is kept, flagged `unresolved`, and never crashes the run (mirrors `safe_search` returning `""`). Tests inject a `FakeResolver`, so the suite stays offline.
+
+**Aggregation** — `build_references(artifact, provided_path=None, resolver=None)`: collect retrieved `Source`s + resolved provided ids → merge, **dedup by normalized arXiv-id / DOI**, assign `[n]` + BibTeX keys, compute `cited_by` (which claims' grounder checks cite each source).
+
+**Output** — emit `results/<slug>.bib`; the markdown report gains inline `[n]` markers on grounded claim lines and a `## References` section: `[1] Title — Authors (year). url ·retrieved ·independent`.
+
+★ **Why the tags matter.** `origin` + `relation` make the bibliography an **independence audit trail** — the same anti-circularity invariant (D8) surfaced in the output. A reader sees at a glance whether `internally_validated` rested on genuinely independent retrieved sources or on one author cited three times.
+
+**Schema touch** — `Source` (already in `artifact.py`) gains optional `title`/`url`/`year` so retrieved evidence is captured as citable at grounding time. Backward-compatible (defaults `None`); the gate and independence-counting logic are untouched.
+
+**Plan impact** — modify Task 10 (Grounder captures `Article` metadata), add a new task for `references.py` (model + injectable resolver + arXiv/DOI resolvers + merge/dedup/BibTeX/citation-map, `FakeResolver` tests), modify the CLI task (`--references` flag, `.bib` emit, inline `[n]` + References section), extend the integration test (assert a `.bib` is emitted and a grounded claim is cited).

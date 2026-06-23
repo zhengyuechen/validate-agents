@@ -1326,6 +1326,17 @@ Note: a Prover `pass` sets `independent_sources=1` so a purely mathematical/defi
 
 - [ ] **Step 5: Commit.** `git add -A && git commit -m "feat(agents): Grounder (independence-aware) + Prover (definitional well-formedness)"`
 
+### Task 10 addendum — capture retrieved metadata for citations
+
+**Files:** Modify `valagents/artifact.py` (`Source`), `valagents/web_search.py`, `valagents/agents/grounder.py`. Test: `tests/test_agent_lenses.py` (+ cases).
+
+- [ ] **Add optional fields to `Source`** in `valagents/artifact.py` (backward-compatible — defaults `None`, gate/independence logic untouched):
+  `title: str | None = None`, `url: str | None = None`, `year: str | None = None`.
+- [ ] **Return structured articles** — add to `valagents/web_search.py`:
+  `async def search_articles(backend, query, max_results=5) -> tuple[str, list[Article]]` — returns BOTH the formatted prompt string (as `safe_search` does) AND the structured `Article` list; on any failure return `("", [])` (same fail-soft as `safe_search`).
+- [ ] **Map cited labels back to articles** — in `valagents/agents/grounder.py`, `ground_claim` uses `search_articles`, labels the articles `[A1], [A2], …` in the prompt (as today), and after parsing the `SOURCES` tail maps each cited label to its `Article`, building `Source(locator=article.url, title=article.title, url=article.url, year=str(article.published)[:4], relation="independent")`. A label with no matching article keeps a bare `Source(locator=label, relation="independent")`.
+- [ ] **Test** (no network — pass a fake backend whose `search` returns canned `Article`s): a grounded claim's `CheckRecord.sources[0]` carries `title` and `url` from the matched article.
+
 ---
 
 ## Task 11: Whole-artifact lenses — Predictor, Red-team, Validation-designer
@@ -1961,7 +1972,254 @@ Implementer note: the loop re-forks while landed fatal/major attacks remain. Whe
 
 ---
 
-## Task 16: CLI + markdown report
+## Task 16: References — model, resolver, aggregation, BibTeX
+
+**Files:** Create `valagents/references.py`. Test: `tests/test_references.py`.
+
+**Interfaces:**
+- Consumes: `IdeaArtifact`, `AtomicClaim`, `CheckRecord`, `Source` (with the Task-10-addendum `title`/`url`/`year`).
+- Produces: `Reference` (pydantic); `detect_kind(id)->"arxiv"|"doi"|"unknown"`; `normalize_id(id)->str`; `Resolver` Protocol (`async resolve(id)->Reference|None`); `ArxivResolver`, `DoiResolver`, `DefaultResolver` (dispatches by kind); `async load_provided(path,resolver)->list[Reference]`; `collect_retrieved(artifact)->list[Reference]`; `async build_references(artifact,provided_path=None,resolver=None)->list[Reference]`; `to_bibtex(refs)->str`; `markers_for_claim(refs,claim_id)->list[int]`.
+
+- [ ] **Step 1: Write the failing tests** `tests/test_references.py`:
+
+```python
+from valagents.references import (Reference, detect_kind, normalize_id, collect_retrieved,
+                                  build_references, to_bibtex, markers_for_claim)
+from valagents.artifact import IdeaArtifact, AtomicClaim, CheckRecord, Source
+
+class FakeResolver:
+    def __init__(self, table): self.table = table
+    async def resolve(self, identifier):
+        return self.table.get(normalize_id(identifier))
+
+def test_detect_kind():
+    assert detect_kind("https://arxiv.org/abs/2401.12345") == "arxiv"
+    assert detect_kind("arXiv:2401.12345") == "arxiv"
+    assert detect_kind("10.1103/PhysRevLett.1.1") == "doi"
+    assert detect_kind("https://doi.org/10.1/x") == "doi"
+
+def _art(src):
+    c = AtomicClaim(id="c1", statement="s", type="empirical",
+                    checks=[CheckRecord(lens="grounder", verdict="pass",
+                                        independent_sources=1, sources=[src])])
+    return IdeaArtifact(raw_idea="s", claim_graph=[c])
+
+def test_collect_retrieved_carries_metadata_and_cited_by():
+    art = _art(Source(locator="https://arxiv.org/abs/2401.12345", title="Curl",
+                      url="https://arxiv.org/abs/2401.12345", relation="independent"))
+    refs = collect_retrieved(art)
+    assert refs[0].title == "Curl" and refs[0].cited_by == ["c1"] and refs[0].origin == "retrieved"
+
+async def test_build_dedups_provided_and_retrieved(tmp_path):
+    art = _art(Source(locator="arxiv:2401.12345", title="Curl", relation="independent"))
+    p = tmp_path / "refs.txt"; p.write_text("https://arxiv.org/abs/2401.12345\n")
+    resolver = FakeResolver({"arxiv:2401.12345": Reference(
+        locator="arxiv:2401.12345", title="Curl Descent", authors=["Smith"],
+        year="2024", url="u", origin="provided")})
+    refs = await build_references(art, str(p), resolver)
+    assert len(refs) == 1                                    # deduped by normalized id
+    assert refs[0].origin == "provided" and refs[0].cited_by == ["c1"]   # provided meta, retrieved cited_by
+    assert refs[0].number == 1 and refs[0].key
+
+async def test_unresolved_kept(tmp_path):
+    p = tmp_path / "r.txt"; p.write_text("10.9999/nope\n")
+    refs = await build_references(IdeaArtifact(raw_idea="s"), str(p), FakeResolver({}))
+    assert refs[0].unresolved is True
+
+def test_to_bibtex():
+    r = Reference(locator="arxiv:1", key="smith2024", title="T", authors=["Smith"],
+                  year="2024", url="u", number=1)
+    bib = to_bibtex([r])
+    assert "@article{smith2024," in bib and "title = {T}" in bib
+
+def test_markers_for_claim():
+    refs = [Reference(locator="a", number=1, cited_by=["c1"]),
+            Reference(locator="b", number=2, cited_by=["c2"])]
+    assert markers_for_claim(refs, "c1") == [1]
+```
+
+- [ ] **Step 2: Run → FAIL.** `python -m pytest tests/test_references.py -v`
+
+- [ ] **Step 3: Implement `valagents/references.py`:**
+
+```python
+"""References & citations: resolve identifiers, aggregate retrieved + provided sources, emit BibTeX."""
+from __future__ import annotations
+import json
+import re
+from typing import Literal, Protocol
+from pydantic import BaseModel
+
+_ARXIV_RE = re.compile(r"(\d{4}\.\d{4,5})(v\d+)?")
+_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s]+", re.IGNORECASE)
+
+class Reference(BaseModel):
+    locator: str
+    key: str = ""
+    number: int = 0
+    title: str = ""
+    authors: list[str] = []
+    year: str = ""
+    url: str = ""
+    origin: Literal["provided", "retrieved"] = "retrieved"
+    relation: str = "unknown"
+    unresolved: bool = False
+    cited_by: list[str] = []
+
+def detect_kind(identifier: str) -> str:
+    s = identifier.strip().lower()
+    if "arxiv.org" in s or s.startswith("arxiv:") or _ARXIV_RE.fullmatch(identifier.strip()):
+        return "arxiv"
+    if "doi.org" in s or _DOI_RE.search(identifier):
+        return "doi"
+    return "unknown"
+
+def normalize_id(identifier: str) -> str:
+    s = identifier.strip()
+    if detect_kind(s) == "arxiv":
+        m = _ARXIV_RE.search(s)
+        if m:
+            return "arxiv:" + m.group(1)
+    d = _DOI_RE.search(s)
+    if d:
+        return d.group(0).lower()
+    return s.lower()
+
+class Resolver(Protocol):
+    async def resolve(self, identifier: str) -> "Reference | None": ...
+
+class ArxivResolver:
+    async def resolve(self, identifier):
+        import asyncio
+        import arxiv
+        m = _ARXIV_RE.search(identifier)
+        if not m:
+            return None
+        try:
+            results = await asyncio.to_thread(
+                list, arxiv.Client().results(arxiv.Search(id_list=[m.group(1)])))
+        except Exception:
+            results = []
+        if not results:
+            return Reference(locator=normalize_id(identifier), url=identifier,
+                             unresolved=True, origin="provided")
+        r = results[0]
+        return Reference(locator=normalize_id(identifier), title=r.title,
+                         authors=[a.name for a in r.authors], year=str(r.published)[:4],
+                         url=r.entry_id, origin="provided")
+
+class DoiResolver:
+    async def resolve(self, identifier):
+        import httpx
+        d = _DOI_RE.search(identifier)
+        if not d:
+            return None
+        doi = d.group(0)
+        try:
+            async with httpx.AsyncClient() as c:
+                resp = await c.get(f"https://api.crossref.org/works/{doi}", timeout=15)
+                resp.raise_for_status()
+                msg = resp.json()["message"]
+        except Exception:
+            return Reference(locator=doi.lower(), url=f"https://doi.org/{doi}",
+                             unresolved=True, origin="provided")
+        authors = [f"{a.get('given','')} {a.get('family','')}".strip()
+                   for a in msg.get("author", [])]
+        parts = (msg.get("published-print") or msg.get("published-online") or {}).get("date-parts", [[""]])
+        return Reference(locator=doi.lower(), title=(msg.get("title") or [""])[0],
+                         authors=authors, year=str(parts[0][0]),
+                         url=f"https://doi.org/{doi}", origin="provided")
+
+class DefaultResolver:
+    def __init__(self):
+        self._arxiv, self._doi = ArxivResolver(), DoiResolver()
+    async def resolve(self, identifier):
+        kind = detect_kind(identifier)
+        if kind == "arxiv":
+            return await self._arxiv.resolve(identifier)
+        if kind == "doi":
+            return await self._doi.resolve(identifier)
+        return None
+
+def _read_ids(path: str) -> list[str]:
+    text = open(path).read().strip()
+    if text.startswith("["):
+        return [str(x).strip() for x in json.loads(text) if str(x).strip()]
+    return [ln.strip() for ln in text.splitlines()
+            if ln.strip() and not ln.strip().startswith("#")]
+
+async def load_provided(path: str, resolver: Resolver) -> list[Reference]:
+    out = []
+    for ident in _read_ids(path):
+        ref = await resolver.resolve(ident)
+        if ref is None:
+            ref = Reference(locator=normalize_id(ident), url=ident, unresolved=True, origin="provided")
+        ref.origin = "provided"
+        out.append(ref)
+    return out
+
+def collect_retrieved(artifact) -> list[Reference]:
+    seen: dict = {}
+    out: list[Reference] = []
+    for claim in artifact.claim_graph:
+        for chk in claim.checks:
+            for s in getattr(chk, "sources", []):
+                k = normalize_id(s.locator)
+                if k not in seen:
+                    ref = Reference(locator=k, title=s.title or "", url=s.url or "",
+                                    year=s.year or "", relation=s.relation,
+                                    origin="retrieved", cited_by=[claim.id])
+                    seen[k] = ref
+                    out.append(ref)
+                elif claim.id not in seen[k].cited_by:
+                    seen[k].cited_by.append(claim.id)
+    return out
+
+def _bibtex_key(ref: Reference, n: int) -> str:
+    first = (ref.authors[0].split()[-1] if ref.authors else "ref").lower()
+    first = re.sub(r"[^a-z0-9]", "", first) or "ref"
+    return f"{first}{ref.year or n}"
+
+async def build_references(artifact, provided_path=None, resolver=None) -> list[Reference]:
+    by_key = {r.locator: r for r in collect_retrieved(artifact)}
+    if provided_path and resolver is not None:
+        for pr in await load_provided(provided_path, resolver):
+            if pr.locator in by_key:
+                pr.cited_by = by_key[pr.locator].cited_by   # keep retrieved cited_by, take provided metadata
+            by_key[pr.locator] = pr
+    refs = sorted(by_key.values(), key=lambda r: (0 if r.cited_by else 1, r.locator))
+    for i, r in enumerate(refs, 1):
+        r.number = i
+        r.key = _bibtex_key(r, i)
+    return refs
+
+def markers_for_claim(refs: list[Reference], claim_id: str) -> list[int]:
+    return sorted(r.number for r in refs if claim_id in r.cited_by)
+
+def to_bibtex(refs: list[Reference]) -> str:
+    blocks = []
+    for r in refs:
+        typ = "misc" if (r.unresolved or not r.year) else "article"
+        fields = []
+        if r.title:
+            fields.append(f"  title = {{{r.title}}}")
+        if r.authors:
+            fields.append(f'  author = {{{" and ".join(r.authors)}}}')
+        if r.year:
+            fields.append(f"  year = {{{r.year}}}")
+        if r.url:
+            fields.append(f"  url = {{{r.url}}}")
+        fields.append(f"  note = {{origin={r.origin}; relation={r.relation}}}")
+        blocks.append(f"@{typ}{{{r.key},\n" + ",\n".join(fields) + "\n}")
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
+```
+
+- [ ] **Step 4: Run → PASS.** `python -m pytest tests/test_references.py -v`
+- [ ] **Step 5: Commit.** `git add -A && git commit -m "feat(references): identifier resolver + retrieved/provided merge + BibTeX + citation map"`
+
+---
+
+## Task 17: CLI + markdown report (+ references)
 
 **Files:** Create `valagents/cli.py`. Test: `tests/test_cli.py`.
 
@@ -2063,11 +2321,16 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run → PASS.** `pytest tests/test_cli.py -v` → 2 passed.
 
-- [ ] **Step 5: Commit.** `git add -A && git commit -m "feat(cli): run + JSON/markdown report carrying the honesty limit"`
+- [ ] **Step 5 (references integration):** Extend `valagents/cli.py` with the following:
+  - `run_cli(...)` gains params `references_path=None, resolver=None`; after `run(...)`, call `refs = await build_references(art, references_path, resolver)`, write `results/<slug>.bib` with `to_bibtex(refs)`, and pass `refs` to `render_report`.
+  - `render_report(art, refs=None)`: when `refs`, append `[n]` markers to each grounded claim line via `markers_for_claim(refs, claim.id)`, and add a `## References` section listing `[n] {title} — {", ".join(authors)} ({year}). {url}  ·{origin} ·{relation}` (unresolved entries show the raw locator).
+  - `main()`: add `--references` argument; build `resolver = DefaultResolver()` from `valagents.references` when `--references` is given.
+
+- [ ] **Step 6: Commit.** `git add -A && git commit -m "feat(cli): run + JSON/markdown report carrying the honesty limit"`
 
 ---
 
-## Task 17: Integration — the escape-saddle worked example
+## Task 18: Integration — the escape-saddle worked example
 
 **Files:** Test only: `tests/test_integration_escape_saddle.py`.
 
@@ -2132,6 +2395,8 @@ async def test_escape_saddle_needs_experiment(cfg):
 
 - [ ] **Step 3:** No new implementation — fix any wiring bug this surfaces in `scheduler.py`/agents. (If `load_bearing` ≠ `"B"`, check the `_evaluate` blocker precedence: the first `uncertain` root-ancestor in `claim_graph` order is surfaced; B must be the uncertain one. The router makes A and C `pass`, B `uncertain`, so the blocker claim is B.)
 
+- [ ] **Step 3b (references end-to-end):** Extend the scripted run so the Grounder returns a `SOURCES` token with an arXiv id (via a fake backend returning a canned `Article`), pass a `--references`-style provided id through a `FakeResolver`, and assert the artifact yields references, a grounded claim has `[n]` markers in the report, and a `.bib` is written.
+
 - [ ] **Step 4: Run → PASS.** Then the whole suite: `pytest -q` → all green.
 
 - [ ] **Step 5: Commit.** `git add -A && git commit -m "test(integration): escape-saddle end-to-end → needs_experiment, load_bearing=B"`
@@ -2140,10 +2405,10 @@ async def test_escape_saddle_needs_experiment(cfg):
 
 ## Self-Review (completed against the spec)
 
-**1. Spec coverage.** Every spec section maps to a task: §2 schema → T3/T4/T5/T6; §2.1 gate (all entry gates, caps, strict branch) → T4 with per-branch tests; §2.2 load_bearing/blocker → T5; §2.3 maturity ⊥ status → T6; §2.4 coverage matrix → T14; §3 the eleven roles → T8–T12; §4 parse strict tail → T2; §5 control loop (entry gates, fan-out, repair-versioning, finalize) → T13/T14/T15; §6 reuse/layout → T1; §7 worked cycle → T17; §8 tests → distributed across every task; §9 D1–D12 + the limit sentence → encoded (D7 faithfulness T9/T13, D8 independence T8/T10, D9 teeth T11/T4, D10 entailment T9/T4, D11 fan-out T14, D12 empty-graph T13, limit sentence T16).
+**1. Spec coverage.** Every spec section maps to a task: §2 schema → T3/T4/T5/T6; §2.1 gate (all entry gates, caps, strict branch) → T4 with per-branch tests; §2.2 load_bearing/blocker → T5; §2.3 maturity ⊥ status → T6; §2.4 coverage matrix → T14; §3 the eleven roles → T8–T12; §4 parse strict tail → T2; §5 control loop (entry gates, fan-out, repair-versioning, finalize) → T13/T14/T15; §6 reuse/layout → T1; §7 worked cycle → T18; §8 tests → distributed across every task; §9 D1–D12 + the limit sentence → encoded (D7 faithfulness T9/T13, D8 independence T8/T10, D9 teeth T11/T4, D10 entailment T9/T4, D11 fan-out T14, D12 empty-graph T13, limit sentence T17); references & citations → T16 (retrieved metadata from T10 addendum) + T17 CLI integration.
 
 **2. Placeholder scan.** No "TBD"/"handle edge cases"/"similar to Task N". The single human-authored step (T6 `maturity`) is explicitly flagged with a working default + a binding isolation test, not a placeholder.
 
-**3. Type consistency.** Status strings (`"internally_validated"` etc.) and claim statuses (`"pass"/"fail"/"uncertain"/"pending"`) are fixed in Global Constraints and used identically across T3–T17. Agent function names referenced by the scheduler (`formalize`, `faithfulness_check`, `decompose`, `entailment_check`, `ground_claim`, `ground_novelty`, `prove_claim`, `predict`, `red_team`, `design_validation`, `repair`, `arbitrate`) match their defining tasks. `CheckRecord`/`Source`/`AttackSurface` field names are stable from T3 onward.
+**3. Type consistency.** Status strings (`"internally_validated"` etc.) and claim statuses (`"pass"/"fail"/"uncertain"/"pending"`) are fixed in Global Constraints and used identically across T3–T18. Agent function names referenced by the scheduler (`formalize`, `faithfulness_check`, `decompose`, `entailment_check`, `ground_claim`, `ground_novelty`, `prove_claim`, `predict`, `red_team`, `design_validation`, `repair`, `arbitrate`) match their defining tasks. `CheckRecord`/`Source`/`AttackSurface` field names are stable from T3 onward.
 
 **Known sharp edges flagged inline for the implementer** (not gaps — judgment points): Red-team `ATTEMPTED` capture (T11) is cleaner if `parse.checked_lines` optionally returns the raw body; the Prover `pass → independent_sources=1` choice (T10) is what lets pure-math claims reach `pass` without external literature.
