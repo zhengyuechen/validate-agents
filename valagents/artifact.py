@@ -222,13 +222,22 @@ class IdeaArtifact(BaseModel):
     @computed_field
     @property
     def maturity(self) -> float:
-        # USER CONTRIBUTION (learning mode). HARD CONSTRAINT: must not read self.status.
-        # Inputs you may use: self.claim_graph (+ each claim.status), self.attacks,
-        # self.coverage, self.attack_surface, self.predictions.
+        # Display/ranking scalar (spec 2.3). Reads the verdict set directly --
+        # claim_graph, attacks, attack_surface, predictions, validation_plan, coverage --
+        # and NEVER the artifact's own gate verdict (self.status). One-directional by rule.
         rs = self.root_ancestors()
         if not rs:
             return 0.0
-        per = {"pass": 1.0, "uncertain": 0.5, "fail": 0.0, "pending": 0.0}
-        base = sum(per[c.status] for c in rs) / len(rs)
-        minor = sum(1 for a in self.attacks if a.status == "landed" and a.severity == "minor")
-        return max(0.0, base - 0.1 * minor)
+        verified = sum(1 for c in rs if c.status == "pass") / len(rs)
+        b = 0
+        if any(p.measurable and p.discriminates_from for p in self.predictions):
+            b += 1
+        if self.validation_plan is not None:
+            b += 1
+        if self.attack_surface is not None and not self._thin_attack_surface():
+            b += 1
+        if self.coverage is not None and self.coverage.verdict == "complete":
+            b += 1
+        n_minor = min(1, sum(1 for a in self.attacks
+                             if a.status == "landed" and a.severity == "minor"))
+        return max(0.0, min(1.0, 0.7 * verified + 0.3 * (b / 4) - 0.05 * n_minor))

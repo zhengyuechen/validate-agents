@@ -15,3 +15,23 @@ def test_passing_claims_mature_higher_than_pending():
     high = art()  # all pass
     low = art(claim_graph=[claim("c1", checks=[])])  # pending
     assert high.maturity > low.maturity
+
+def test_maturity_body_does_not_reference_artifact_status():
+    # maturity must read the verdict set, never the collapsed gate verdict
+    from pathlib import Path
+    src = Path("valagents/artifact.py").read_text()
+    # Extract the maturity method body (from def maturity to next @computed_field or next def)
+    start = src.find("    def maturity(self) -> float:")
+    assert start != -1, "maturity method not found"
+    # Find the next method or property decorator after maturity
+    rest = src[start:]
+    next_def = rest.find("\n    def ", 4)
+    next_decorator = rest.find("\n    @", 4)
+    candidates = [x for x in [next_def, next_decorator] if x > 0]
+    end = min(candidates) if candidates else len(rest)
+    maturity_src = rest[:end]
+    # Skip docstring/comment lines (those starting with # or containing only strings)
+    lines = maturity_src.split('\n')
+    code_lines = [l for l in lines[1:] if l.strip() and not l.strip().startswith('#')]
+    code_body = '\n'.join(code_lines)
+    assert "self.status" not in code_body
