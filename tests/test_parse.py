@@ -26,8 +26,11 @@ async def test_checked_reasks_once_then_succeeds():
     assert out["falsifiable"] == "yes" and len(llm.calls) == 2
 
 async def test_checked_double_failure_returns_none(caplog):
-    llm = FakeLLM(lambda a, m: "still no tail")
+    import logging
+    caplog.set_level(logging.WARNING)
+    bodies = iter(["bad body one", "bad body two"])
+    llm = FakeLLM(lambda a, m: next(bodies))
     out = await checked("formalizer", [{"role": "user", "content": "q"}],
                         ["CLAIM", "FALSIFIABLE"], llm=llm)
     assert out is None and len(llm.calls) == 2
-    assert "still no tail" in caplog.text  # both malformed bodies logged
+    assert "bad body one" in caplog.text and "bad body two" in caplog.text  # BOTH bodies logged
