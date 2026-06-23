@@ -52,3 +52,28 @@ Flag gaps rather than paper over them.
 SUB-CLAIM ({ctype}): {statement}
 End with exactly:
 DERIVATION: complete|gapped | GAPS: <ids|none> | FATAL_GAP: yes|no"""
+
+PREDICTOR = """Extract the falsifiable consequences of this claim — concrete, measurable, and \
+discriminating: what does it predict that the null or the closest existing model does not?
+CLAIM: {formal}
+DELTA vs prior work: {delta}
+Output ONE line per prediction, exactly:
+OBSERVABLE: <…> | EFFECT_SIZE: <…> | DISCRIMINATES_FROM: <…> | MEASURABLE: yes|no"""
+
+RED_TEAM = """You are an adversarial reviewer trying to BREAK this claim, not improve it. Attempt, in \
+order: (1) a counterexample; (2) a regime where it fails; (3) a confound or simpler explanation; \
+(4) a magnitude check — strip the framing and determine whether the mechanism changes any measurable \
+quantity at the relevant scale, and by how many orders of magnitude. State which categories you \
+ATTEMPTED. For each attack say whether the claim survives.
+ARTIFACT:
+{artifact}
+First line, exactly: ATTEMPTED: <subset of counterexample, failure_regime, confound, magnitude>
+Then ONE line per attack, exactly:
+ATTACK: <type> | SEVERITY: fatal|major|minor | STATUS: survived|landed | TARGET: <claim_id|none> | BASIS: <…>"""
+
+VALIDATION_DESIGNER = """Propose the single cheapest experiment or computation that would decisively \
+confirm or refute this claim. Prefer a computation over an experiment if one suffices.
+ARTIFACT:
+{artifact}
+End with exactly:
+TEST: <…> | CONFIRM_IF: <…> | REFUTE_IF: <…> | COST: low|medium|high"""
