@@ -238,6 +238,7 @@ class IdeaArtifact(BaseModel):
             b += 1
         if self.coverage is not None and self.coverage.verdict == "complete":
             b += 1
-        n_minor = min(1, sum(1 for a in self.attacks
-                             if a.status == "landed" and a.severity == "minor"))
-        return max(0.0, min(1.0, 0.7 * verified + 0.3 * (b / 4) - 0.05 * n_minor))
+        n_minor = sum(1 for a in self.attacks
+                      if a.status == "landed" and a.severity == "minor")
+        penalty = 0.05 * min(n_minor, 4)   # per-attack, summed penalty saturates at 0.2
+        return max(0.0, min(1.0, 0.7 * verified + 0.3 * (b / 4) - penalty))

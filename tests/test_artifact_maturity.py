@@ -16,6 +16,17 @@ def test_passing_claims_mature_higher_than_pending():
     low = art(claim_graph=[claim("c1", checks=[])])  # pending
     assert high.maturity > low.maturity
 
+def test_minor_attacks_lower_maturity_by_gradient():
+    # per-attack penalty (summed, saturating at 0.2) — NOT a flat clamp:
+    # more landed minor attacks => strictly lower maturity, up to the saturation point.
+    from valagents.artifact import Attack
+    minor = lambda: Attack(type="confound", severity="minor", status="landed")
+    none = art()
+    one = art(attacks=[minor()])
+    three = art(attacks=[minor() for _ in range(3)])
+    assert none.maturity > one.maturity > three.maturity
+
+
 def test_maturity_body_does_not_reference_artifact_status():
     # maturity must read the verdict set, never the collapsed gate verdict
     from pathlib import Path
