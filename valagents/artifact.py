@@ -218,3 +218,17 @@ class IdeaArtifact(BaseModel):
                 if other.id != c.id and reaches(other.id, c.id):
                     deps[c.id] += 1
         return max(rs, key=lambda c: (deps[c.id], c.id)).id
+
+    @computed_field
+    @property
+    def maturity(self) -> float:
+        # USER CONTRIBUTION (learning mode). HARD CONSTRAINT: must not read self.status.
+        # Inputs you may use: self.claim_graph (+ each claim.status), self.attacks,
+        # self.coverage, self.attack_surface, self.predictions.
+        rs = self.root_ancestors()
+        if not rs:
+            return 0.0
+        per = {"pass": 1.0, "uncertain": 0.5, "fail": 0.0, "pending": 0.0}
+        base = sum(per[c.status] for c in rs) / len(rs)
+        minor = sum(1 for a in self.attacks if a.status == "landed" and a.severity == "minor")
+        return max(0.0, base - 0.1 * minor)
