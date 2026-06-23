@@ -188,6 +188,9 @@ def status(self) -> Status:
     # ===== VALIDATED: STRICT (I2) =====
     if (rs and all(c.status == "pass" for c in rs)        # pending is never pass
             and all(self._has_independent_external_check(c) for c in rs)
+            and (self.faithfulness and self.faithfulness.verdict == "yes")   # POSITIVE precond — symmetric w/ coverage;
+                                                                            # closes faithfulness=None and narrowed/retried=False
+                                                                            # in the GATE, not in scheduler ordering (§1 SPOF rule)
             and (self.coverage and self.coverage.verdict == "complete")
             and not self._thin_attack_surface()
             and not self._landed("fatal") and not self._landed("major")):  # minor → maturity only (D4)
@@ -198,9 +201,12 @@ def status(self) -> Status:
 
 `_thin_attack_surface()` = `magnitude` not in `attack_surface.attempted`, **or** fewer than `config.min_attack_categories` (default 2) attempted. `_has_independent_external_check(c)` = some `CheckRecord` on `c` with `verdict == "pass"` and `independent_sources ≥ 1`.
 
+> **Boundary note — teeth checks *coverage*, not *strength*.** `attempted` is the Red-team's self-report, so a *token* magnitude attack listed in `ATTEMPTED` passes `_thin_attack_surface()`. In Spec 1, teeth closes **"didn't try magnitude," not "tried magnitude weakly"** — the latter is exactly what Spec 2's *executed* magnitude check shuts. A reader must not read "passed teeth" as "was attacked hard."
+
 Totality properties (all paths terminate in one of three):
 - **`pending` never masquerades as `pass`** — validated branch requires strict `pass` + an independent external check; an orphaned claim sits `pending` → `uncovered` once `exhausted`.
-- **Faithfulness/entailment guard the *claim*** — drift/narrowing → `refuted`; decomposition gap → `needs_experiment`; both *before* any "validated" is reachable.
+- **Faithfulness guards the *claim*, in the gate not the schedule** — drift/narrowing → `refuted` via the entry gates, *and* `internally_validated` positively requires `faithfulness.verdict == "yes"` in the validated branch (symmetric with `coverage`). The two slip-cases (`faithfulness is None`; `narrowed` with `retried == False`) are closed by the code, not by §5's ordering.
+- **Entailment guards the *decomposition*** — `COVERS: gap` → `needs_experiment`, *before* any "validated" is reachable.
 - **Independence guards the *evidence*** — a `supported` verdict with zero independent sources never becomes `pass` (downgraded to `uncertain` at the verdict-mapping layer, §3).
 - **Teeth guard the *attack*** — a thin/mostly-skipped surface caps below `internally_validated`.
 - **Repair-cap exhaustion** needs no special clause: at cap the scheduler finalizes; a still-`landed` fatal attack computes `refuted`.
@@ -290,9 +296,13 @@ The parse-4/6 lesson as a standing rule: the failure the happy path hides (a len
 5. Walk claim_graph in dependency order; per claim run its applicable lenses (matrix §2.4).
    Each lens appends a CheckRecord (with sources/independent_sources); claim.status recomputes (pure).
    FAN-OUT POLICY (#5): a LOAD-BEARING claim that resolves to `uncertain` is NOT marked
-        exhausted until >= config.fanout_N (default 2) INDEPENDENT lenses have run on it
-        (e.g. multiple counterexample searches / magnitude angles). Disagreement is signal,
-        kept as multiple CheckRecords. [Spec 1: sequential. Spec 4: parallel — same join.]
+        exhausted until >= config.fanout_N (default 2) DIVERSE-TYPE lenses have run on it
+        (e.g. a counterexample search AND a magnitude angle — NOT repeated same-type runs).
+        Fan-out's value is DISAGREEMENT-DETECTION, not agreement-as-corroboration: repeated
+        same-type runs are correlated draws sharing the base model's blind spots — the §1 limit,
+        and D8's same-author correlation one level up. So "met fanout_N" by repetition is NOT
+        read as strong support; disagreement among diverse lenses is the signal, kept as
+        multiple CheckRecords. [Spec 1: sequential. Spec 4: parallel — same join.]
 6. Whole-artifact lenses once: Grounder(novelty/delta), Red-team(attacks + attack_surface),
    Predictor, Validation-designer.
 7. Propagate verdicts along edges (pure rollup over the DAG).
@@ -399,6 +409,6 @@ Seed: *"adding an antisymmetric curl term to gradient descent helps escape saddl
 - **D8** *(rev 2, #2)* **`CheckRecord` independence seam** — `sources[]` + `independent_sources`; Grounder `supported`+0-independent downgraded to `uncertain` in code. Carved now so Spec 3's citation-aware retriever needs no reshape.
 - **D9** *(rev 2, #3)* **Red-team teeth** — `attack_surface.attempted`; magnitude mandatory; thin/mostly-skipped surface caps below `internally_validated`.
 - **D10** *(rev 2, #4, known-partial)* **Entailment `COVERS` pass** — conjunction of sub-claims ⊢ `formal_claim`; `gap` caps below `internally_validated`. Catches obvious cases; Red-team backstops the rest.
-- **D11** *(rev 2, #5)* **Fan-out policy in Spec 1, execution in Spec 4** — load-bearing `uncertain` nodes require `fanout_N` independent lenses before finalizing; the append-only join already supports it, only the trigger is new.
+- **D11** *(rev 2, #5)* **Fan-out policy in Spec 1, execution in Spec 4** — load-bearing `uncertain` nodes require `fanout_N` **diverse-type** lenses before finalizing; value is disagreement-detection, not agreement-as-corroboration (repetition ≠ corroboration — same correlation D8 guards for sources). The append-only join already supports it; only the trigger is new.
 - **D12** *(rev 2, minor-1)* **Empty-decomposition guard** — degenerate Decomposer → retry → `refuted`/`ill_formed`; closes a totality hole.
 - **Limit (rev 2, minor-2)** — `internally_validated` = "survived the checks this system can run," never "true"; every lens shares the base model's blind spots. Sentence ships in the report output, not just the spec.
