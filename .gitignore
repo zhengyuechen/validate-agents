@@ -6,3 +6,4 @@ __pycache__/
 results/*.jsonl
 results/.logs/
 .env
+*.egg-info/
