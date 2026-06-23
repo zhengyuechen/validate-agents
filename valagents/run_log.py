@@ -17,7 +17,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-_current: contextvars.ContextVar = contextvars.ContextVar("cosci_run_logger", default=None)
+_current: contextvars.ContextVar = contextvars.ContextVar("valagents_run_logger", default=None)
 
 
 def events_path(results_base: str, run_id: str) -> Path:

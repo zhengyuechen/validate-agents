@@ -1,4 +1,4 @@
-"""Verdict parsing. parse_label is copied from cosci; the strict tail is new."""
+"""Verdict parsing: a label parser plus the strict machine-readable tail contract."""
 from __future__ import annotations
 import logging
 import re
@@ -6,7 +6,7 @@ from valagents.llm import LLMClient
 
 log = logging.getLogger(__name__)
 
-def parse_label(text: str, *labels: str) -> str | None:        # copied from cosci/agents/base.py
+def parse_label(text: str, *labels: str) -> str | None:
     best = None
     for label in labels:
         for m in re.finditer(rf"\b{re.escape(label)}\s*:\s*<?\s*([A-Za-z0-9 _\-]+?)\s*>?(?:\s|$|[.,;])",

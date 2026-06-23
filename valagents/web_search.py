@@ -1,9 +1,7 @@
-"""Pluggable literature-search layer for the Co-Scientist system.
+"""Pluggable literature-search layer.
 
-NOTE: This backend layer is OURS — the paper used broad web search (Tavily / Google).
-      arXiv-only is a deliberate fidelity compromise: free, no key required, but
-      limited to preprints.
-Backends: arXiv (default, free), none, or Tavily (web search, needs WEB_SEARCH_API_KEY)
+Backends: arXiv (default, free, no key required), none, or Tavily (web search, needs
+WEB_SEARCH_API_KEY). arXiv-only is a convenience: free and key-free, limited to preprints.
 """
 from __future__ import annotations
 
