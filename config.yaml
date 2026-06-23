@@ -1,0 +1,23 @@
+default_model: z-ai/glm-4.7
+models:
+  redteam: z-ai/glm-4.7
+  grounder: z-ai/glm-4.7
+temperature:
+  formalizer: 0.3
+  faithfulness: 0.2
+  decomposer: 0.4
+  entailment: 0.2
+  grounder: 0.4
+  prover: 0.3
+  predictor: 0.5
+  redteam: 0.6
+  validation_designer: 0.4
+  repairer: 0.6
+  arbiter: 0.2
+grounding:
+  backend: arxiv
+gate:
+  min_attack_categories: 2
+  fanout_N: 2
+  repair_cap: 3
+results_dir: results
