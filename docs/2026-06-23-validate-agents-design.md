@@ -2,10 +2,9 @@
 
 - **Date:** 2026-06-23
 - **Status:** Approved design (rev 2 — incorporates the green-light gate review *and* the faithfulness / circularity / teeth / entailment review), pending implementation plan
-- **Sibling / source of reuse:** `../co-scientist-reproduce/` (canonical base — async queue engine, Pydantic models, `parse_label` verdict parser, `run_log` JSONL event log, OpenRouter LLM client). That repo stays **untouched**; we copy infra into a fresh `valagents/` package.
 - **Goal in one line:** Grow a single seed idea from a one-liner into a fully-populated, check-hardened `IdeaArtifact`, terminating in exactly one of three honest verdicts — `internally_validated` (the claim the seed actually asked, every dependency externally and independently checked), `needs_experiment`, or `refuted` — and never in a fourth, undefined state.
 
-This is the **depth-first complement** to Co-Scientist's breadth-first tournament. Co-Scientist fans one goal into many hypotheses and an Elo tournament selects a winner. validate-agents inverts it: **one seed, progressively specified, checked, and hardened into a single complete artifact.** "Validation" is really *maturation under check* — completing the idea while verifying it survives at every level of completion.
+This is the **depth-first complement** to breadth-first, tournament-style hypothesis generation. That approach fans one goal into many hypotheses and selects a winner via ranking. validate-agents inverts it: **one seed, progressively specified, checked, and hardened into a single complete artifact.** "Validation" is really *maturation under check* — completing the idea while verifying it survives at every level of completion.
 
 ---
 
@@ -51,7 +50,7 @@ Totality guarantees every run ends honestly. It does **not** guarantee the gate 
 
 ---
 
-## 2. Data model — `valagents/artifact.py` (new; Pydantic, matching cosci style)
+## 2. Data model — `valagents/artifact.py` (new; Pydantic v2)
 
 ```python
 # ---- evidence & independence (the §2 seam carved for Spec 3) ---------------
@@ -238,31 +237,31 @@ Structural guards (not per-claim lenses — they guard the *whole*): **Faithfuln
 
 ---
 
-## 3. The roles — `valagents/agents/` (new prose; Grounder/Prover/Repairer/Arbiter adapt cosci bodies)
+## 3. The roles — `valagents/agents/`
 
-| Role | Adapts | Reads | Writes | Mandatory verdict tail (strict; one re-ask) |
-|---|---|---|---|---|
-| **Formalizer** | — (new) | `raw_idea` | `formal_claim` | `CLAIM: <one sentence> \| VARIABLES: … \| REGIME: … \| FALSIFIABLE: yes\|no` |
-| **Faithfulness** | — (new, independent of Formalizer) | `raw_idea`, `formal_claim` | `faithfulness` | `FAITHFUL: yes\|narrowed\|no \| BACK_TRANSLATION: <plain-language restatement of formal_claim>` |
-| **Decomposer** | — (new) | `formal_claim` | `claim_graph` (+edges, +types) | one line/claim: `CLAIM: <id> \| TYPE: definitional\|mathematical\|empirical\|mechanistic \| DEPENDS_ON: <ids\|none> \| STATEMENT: …` |
-| **Entailment** | — (new, independent of Decomposer) | `formal_claim`, `claim_graph` | `coverage` | `COVERS: complete\|gap \| MISSING: <desc\|none>` |
-| **Grounder** | Reflection + web search | each claim, whole | `novelty`; per-claim `CheckRecord(grounder)` | `CLOSEST_PRIOR: … \| DELTA: … \| POSITION: new\|special_case\|restatement`; per-claim `CLAIM: <id> \| SUPPORT: supported\|unsupported\|uncertain \| INDEPENDENT_SOURCES: <n> \| SOURCES: <locator(author)…> \| BASIS: …` |
-| **Prover** | — (new, light) | `formal_claim`, graph | `derivation`; `CheckRecord(prover)` | `DERIVATION: complete\|gapped \| GAPS: <ids\|none> \| FATAL_GAP: yes\|no` |
-| **Predictor** | — (new) | `formal_claim`, `novelty` | `predictions` | per-prediction: `OBSERVABLE: … \| EFFECT_SIZE: … \| DISCRIMINATES_FROM: … \| MEASURABLE: yes\|no` |
-| **Red-team** | deep-verification, sharpened | whole | `attacks`, `attack_surface`; `CheckRecord(redteam)` | `ATTEMPTED: <subset of counterexample,failure_regime,confound,magnitude>`; per-attack: `ATTACK: <type> \| SEVERITY: fatal\|major\|minor \| STATUS: survived\|landed \| TARGET: <claim_id\|none> \| BASIS: …` |
-| **Validation-designer** | — (new) | whole | `validation_plan` | `TEST: … \| CONFIRM_IF: … \| REFUTE_IF: … \| COST: low\|medium\|high` |
-| **Repairer** | Evolution | landed attack / fatal gap | **new artifact version** | `REPAIR: … \| TARGETS: <claim_ids> \| RATIONALE: …` |
-| **Arbiter** | Meta-review | computed fields | final narrative only | `STATUS: … \| LOAD_BEARING: <claim_id> \| DECISIVE_TEST: …` (cross-checked vs computed; computed wins) |
+| Role | Reads | Writes | Mandatory verdict tail (strict; one re-ask) |
+|---|---|---|---|
+| **Formalizer** | `raw_idea` | `formal_claim` | `CLAIM: <one sentence> \| VARIABLES: … \| REGIME: … \| FALSIFIABLE: yes\|no` |
+| **Faithfulness** | `raw_idea`, `formal_claim` | `faithfulness` | `FAITHFUL: yes\|narrowed\|no \| BACK_TRANSLATION: <plain-language restatement of formal_claim>` |
+| **Decomposer** | `formal_claim` | `claim_graph` (+edges, +types) | one line/claim: `CLAIM: <id> \| TYPE: definitional\|mathematical\|empirical\|mechanistic \| DEPENDS_ON: <ids\|none> \| STATEMENT: …` |
+| **Entailment** | `formal_claim`, `claim_graph` | `coverage` | `COVERS: complete\|gap \| MISSING: <desc\|none>` |
+| **Grounder** | each claim, whole | `novelty`; per-claim `CheckRecord(grounder)` | `CLOSEST_PRIOR: … \| DELTA: … \| POSITION: new\|special_case\|restatement`; per-claim `CLAIM: <id> \| SUPPORT: supported\|unsupported\|uncertain \| INDEPENDENT_SOURCES: <n> \| SOURCES: <locator(author)…> \| BASIS: …` |
+| **Prover** | `formal_claim`, graph | `derivation`; `CheckRecord(prover)` | `DERIVATION: complete\|gapped \| GAPS: <ids\|none> \| FATAL_GAP: yes\|no` |
+| **Predictor** | `formal_claim`, `novelty` | `predictions` | per-prediction: `OBSERVABLE: … \| EFFECT_SIZE: … \| DISCRIMINATES_FROM: … \| MEASURABLE: yes\|no` |
+| **Red-team** | whole | `attacks`, `attack_surface`; `CheckRecord(redteam)` | `ATTEMPTED: <subset of counterexample,failure_regime,confound,magnitude>`; per-attack: `ATTACK: <type> \| SEVERITY: fatal\|major\|minor \| STATUS: survived\|landed \| TARGET: <claim_id\|none> \| BASIS: …` |
+| **Validation-designer** | whole | `validation_plan` | `TEST: … \| CONFIRM_IF: … \| REFUTE_IF: … \| COST: low\|medium\|high` |
+| **Repairer** | landed attack / fatal gap | **new artifact version** | `REPAIR: … \| TARGETS: <claim_ids> \| RATIONALE: …` |
+| **Arbiter** | computed fields | final narrative only | `STATUS: … \| LOAD_BEARING: <claim_id> \| DECISIVE_TEST: …` (cross-checked vs computed; computed wins) |
 
 - **Faithfulness** back-translates `formal_claim` to plain language and asks "is this what the seed asked?" Independence from the Formalizer is the point — the author does not grade its own pin. `narrowed`/`no` → one bounded re-formalization retry (§5), then `refuted`.
 - **Magnitude is the mandatory Red-team category**; its omission alone trips `_thin_attack_surface()`. The `ATTEMPTED` set is what makes "tried weakly" visible and cappable.
 - **Grounder** must populate `SOURCES`/`INDEPENDENT_SOURCES`; the code (not the LLM) downgrades `supported`+0-independent to `uncertain`.
 
-Prompt skeletons (verbatim from the brief, with the forced tail) live in `valagents/prompts/`; Grounder / Prover / Repairer adapt cosci's reflection / evolution bodies retargeted to these fields.
+Prompt skeletons (verbatim from the brief, with the forced tail) live in `valagents/prompts/`; Grounder / Prover / Repairer write the prompt body retargeted to these fields.
 
 ---
 
-## 4. Verdict parsing — `valagents/parse.py` (COPIED `parse_label` + NEW strict tail)
+## 4. Verdict parsing — `valagents/parse.py` (`parse_label` + strict tail)
 
 ```python
 def parse_tail(text, required_keys) -> dict:        # raise StrictTailError on missing/unparseable key
@@ -320,30 +319,30 @@ The parse-4/6 lesson as a standing rule: the failure the happy path hides (a len
 
 ---
 
-## 6. Reuse map & package layout
+## 6. Package layout
 
 ```
 validate-agents/
   valagents/
-    llm.py         <- COPIED  OpenRouterClient (async, per-agent model/temp, tenacity retry, extract_json)
-    parse.py       <- COPIED  parse_label  +  NEW parse_tail / checked() strict-tail contract (§4)
-    run_log.py     <- COPIED  JSONL event log (contextvars per-run, append-only, replay)
-    web_search.py  <- COPIED  ArxivBackend, safe_search  (Grounder's external check)
-    config.py      <- ADAPTED roles -> models/temps; budget caps; repair cap (=3);
-                              min_attack_categories (=2); fanout_N (=2)
-    artifact.py    <- NEW     schema + computed status/maturity/load_bearing/blocker (§2)
-    store.py       <- NEW     single-writer ArtifactStore + append-only verdict log (cosci memory.py pattern)
-    agents/        <- NEW     base protocol + 7 lenses + Arbiter/Repairer + Faithfulness/Entailment guards (§3)
-    prompts/       <- NEW     verbatim brief skeletons + adapted cosci reflection/evolution bodies
-    scheduler.py   <- NEW     entry gates, DAG loop, fan-out policy, repair-versioning, total-gate termination (§5)
-    cli.py         <- NEW     valagents "<seed>" -> IdeaArtifact JSON + markdown report (carries the §1 limit sentence)
-  tests/           <- NEW     FakeLLM router (deterministic, no network)
+    llm.py         # OpenRouterClient (async, per-agent model/temp, tenacity retry, extract_json)
+    parse.py       # parse_label  +  parse_tail / checked() strict-tail contract (§4)
+    run_log.py     # JSONL event log (contextvars per-run, append-only, replay)
+    web_search.py  # ArxivBackend, safe_search  (Grounder's external check)
+    config.py      # roles -> models/temps; budget caps; repair cap (=3);
+                   #   min_attack_categories (=2); fanout_N (=2)
+    artifact.py    # schema + computed status/maturity/load_bearing/blocker (§2)
+    store.py       # single-writer ArtifactStore + append-only verdict log
+    agents/        # base protocol + 7 lenses + Arbiter/Repairer + Faithfulness/Entailment guards (§3)
+    prompts/       # verbatim brief skeletons for all roles
+    scheduler.py   # entry gates, DAG loop, fan-out policy, repair-versioning, total-gate termination (§5)
+    cli.py         # valagents "<seed>" -> IdeaArtifact JSON + markdown report (carries the §1 limit sentence)
+  tests/           # FakeLLM router (deterministic, no network)
   docs/2026-06-23-validate-agents-design.md
   results/<run_id>.jsonl
 ```
 
-- **Proximity / SentenceTransformer NOT copied** — write-only in the original; earns its place in Spec 3's citation-aware retriever. YAGNI.
-- **Provider stays OpenRouter** (inherited); any role -> any model via `config.py`.
+- **Proximity / SentenceTransformer not included** — earns its place in Spec 3's citation-aware retriever. YAGNI.
+- **Provider:** OpenRouter; any role -> any model via `config.py`.
 
 ---
 
@@ -395,7 +394,7 @@ Seed: *"adding an antisymmetric curl term to gradient descent helps escape saddl
 
 ## 9. Build & next step
 
-- `validate-agents` gets its own git repo, mirroring the sibling repos. Spec doc committed first.
+- `validate-agents` is its own git repo. Spec doc committed first.
 - **Next:** invoke writing-plans → phased plan (schema + parse → entry guards → lenses → scheduler/fan-out → tests), then implement, with the `maturity` formula as the learning-mode contribution.
 
 ### Decision log

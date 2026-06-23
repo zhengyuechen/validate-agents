@@ -4,7 +4,7 @@
 
 **Goal:** Grow one seed idea into a fully-populated, check-hardened `IdeaArtifact` that terminates in exactly one of `internally_validated` / `needs_experiment` / `refuted`, with every verdict a parsed field and "validated" gated on a survived external, independent check.
 
-**Architecture:** A fresh `valagents/` package. Copy four infra modules verbatim from `../co-scientist-reproduce/cosci/` (LLM client, run-log, web-search, the `parse_label` regex) and write the rest new: a Pydantic `IdeaArtifact`/`AtomicClaim` schema whose `status`/`maturity`/`load_bearing`/`blocker` are **computed properties with no setter** (the gate is code, never an LLM), eleven thin agent functions each ending in a strict machine-readable tail, a single-writer append-only `ArtifactStore` with an immutable version chain, and a DAG scheduler that runs entry gates → per-claim lenses → fan-out → repair-versioning → a total verdict.
+**Architecture:** A `valagents/` package whose infra modules (LLM client, run-log, web-search, the `parse_label` regex) are already present, plus new domain code: a Pydantic `IdeaArtifact`/`AtomicClaim` schema whose `status`/`maturity`/`load_bearing`/`blocker` are **computed properties with no setter** (the gate is code, never an LLM), eleven thin agent functions each ending in a strict machine-readable tail, a single-writer append-only `ArtifactStore` with an immutable version chain, and a DAG scheduler that runs entry gates → per-claim lenses → fan-out → repair-versioning → a total verdict.
 
 **Tech Stack:** Python 3.11+, Pydantic v2 (`@computed_field`), `pytest` + `pytest-asyncio`, `tenacity` (retry), `openai` (OpenRouter async client), `arxiv` (grounding), `python-dotenv`, `pyyaml`. Tests use a deterministic `FakeLLM` — **no network in any test.**
 
@@ -20,7 +20,7 @@ Every task's requirements implicitly include this section. Values are verbatim f
 - **`maturity` ⊥ `status`.** The `status` computation must not read `maturity`. Dependency is one-directional: `{verdict set, status} → maturity → report`.
 - **Status string constants** (lowercase): `"draft"`, `"internally_validated"`, `"needs_experiment"`, `"refuted"`. Claim statuses: `"pass"`, `"fail"`, `"uncertain"`, `"pending"`.
 - **Config defaults:** `min_attack_categories = 2`, `fanout_N = 2`, `repair_cap = 3`, `grounding.backend = "arxiv"`.
-- **Provider:** OpenRouter via the copied `OpenRouterClient`; never call the network in tests — inject `FakeLLM`.
+- **Provider:** OpenRouter via `OpenRouterClient` (`valagents/llm.py`); never call the network in tests — inject `FakeLLM`.
 - **Determinism:** no `Date.now()`/wall-clock in computed logic; ticks are integers supplied by the scheduler.
 - **Commits:** one per task minimum; conventional-commit messages (`feat:`, `test:`, `chore:`).
 
@@ -31,24 +31,24 @@ Every task's requirements implicitly include this section. Values are verbatim f
 ```
 valagents/
   __init__.py
-  config.py        # NEW (adapts cosci/config.py): roles→models/temps, GateCfg, load_config
-  llm.py           # COPIED verbatim from cosci/llm.py (import path cosci.config → valagents.config)
-  run_log.py       # COPIED verbatim from cosci/run_log.py
-  web_search.py    # COPIED verbatim from cosci/tools/web_search.py
-  parse.py         # COPIED parse_label + NEW StrictTailError/parse_tail/parse_tail_lines/checked/checked_lines
-  artifact.py      # NEW: all schema models + AtomicClaim.status + IdeaArtifact gate (status/load_bearing/blocker/maturity)
-  store.py         # NEW: ArtifactStore (immutable version chain + append-only event log)
-  prompts.py       # NEW: prompt templates + mandatory tails for all 11 agents
+  config.py        # roles→models/temps, GateCfg, load_config
+  llm.py           # OpenRouterClient (import path: valagents.config)
+  run_log.py       # JSONL event log
+  web_search.py    # ArxivBackend, safe_search
+  parse.py         # parse_label + StrictTailError/parse_tail/parse_tail_lines/checked/checked_lines
+  artifact.py      # all schema models + AtomicClaim.status + IdeaArtifact gate (status/load_bearing/blocker/maturity)
+  store.py         # ArtifactStore (immutable version chain + append-only event log)
+  prompts.py       # prompt templates + mandatory tails for all 11 agents
   agents/
     __init__.py
-    base.py        # NEW: message builder + verdict-mapping helpers shared by every agent
+    base.py        # message builder + verdict-mapping helpers shared by every agent
     formalizer.py  faithfulness.py  decomposer.py  entailment.py
     grounder.py    prover.py        predictor.py   redteam.py
     validation_designer.py  repairer.py  arbiter.py
-  scheduler.py     # NEW: entry gates → per-claim lenses → fan-out → repair-versioning → total verdict
-  cli.py           # NEW: valagents "<seed>" → IdeaArtifact JSON + markdown report
+  scheduler.py     # entry gates → per-claim lenses → fan-out → repair-versioning → total verdict
+  cli.py           # valagents "<seed>" → IdeaArtifact JSON + markdown report
 tests/
-  __init__.py  conftest.py  fake_llm.py      # fake_llm COPIED from cosci/tests/fake_llm.py
+  __init__.py  conftest.py  fake_llm.py
   test_parse.py  test_artifact_claim.py  test_artifact_gate.py
   test_artifact_load_bearing.py  test_artifact_maturity.py  test_store.py
   test_agent_formalizer.py  test_agent_guards.py  test_agent_lenses.py
@@ -66,26 +66,23 @@ Boundary rationale: `artifact.py` holds the gate as one cohesive unit (the schem
 
 **Files:**
 - Create: `valagents/__init__.py`, `pyproject.toml`, `config.yaml`, `.env.example`, `tests/__init__.py`, `tests/conftest.py`
-- Create (copy verbatim): `valagents/llm.py`, `valagents/run_log.py`, `valagents/web_search.py`, `tests/fake_llm.py`
+- Already present (infra modules): `valagents/llm.py`, `valagents/run_log.py`, `valagents/web_search.py`, `tests/fake_llm.py`
 - Create (adapt): `valagents/config.py`
 
 **Interfaces:**
 - Produces: `valagents.config.Config` (pydantic) with `.model_for(agent: str) -> str`, `.temperature: dict[str,str→float]`, `.grounding.backend: str`, `.gate.min_attack_categories/.fanout_N/.repair_cap: int`, `.results_dir: str`; `load_config(path="config.yaml") -> Config`; `require_openrouter_key() -> str`. `valagents.llm.LLMClient` protocol (`async complete(agent, messages, temperature=None, max_tokens=None) -> str`), `OpenRouterClient`, `extract_json`. `tests.fake_llm.FakeLLM(router)` with `.calls`.
 
-- [ ] **Step 1: Copy the four infra files unchanged.**
+- [ ] **Step 1: Confirm infra modules are present.**
 
-```bash
-# run from the validate-agents repo root
-mkdir -p valagents/agents tests
-cp ../co-scientist-reproduce/cosci/llm.py             valagents/llm.py
-cp ../co-scientist-reproduce/cosci/run_log.py         valagents/run_log.py
-cp ../co-scientist-reproduce/cosci/tools/web_search.py valagents/web_search.py
-cp ../co-scientist-reproduce/tests/fake_llm.py        tests/fake_llm.py
-```
+The following files are already in the repo and do not need to be created:
+- `valagents/llm.py` — `OpenRouterClient` (async, per-agent model/temp, tenacity retry, `extract_json`); imports `from valagents.config import Config, require_openrouter_key`.
+- `valagents/run_log.py` — JSONL event log (contextvars per-run, append-only, replay).
+- `valagents/web_search.py` — `ArxivBackend`, `safe_search` (Grounder's external check).
+- `tests/fake_llm.py` — `FakeLLM(router)` with `.calls`.
 
-Then fix import paths in the copies: in `valagents/llm.py` replace `from cosci.config import Config, require_openrouter_key` with `from valagents.config import Config, require_openrouter_key`. `run_log.py` and `web_search.py` have no `cosci.` imports — leave them. Create empty `valagents/__init__.py`, `valagents/agents/__init__.py`, `tests/__init__.py`.
+Create empty `valagents/__init__.py`, `valagents/agents/__init__.py`, `tests/__init__.py`.
 
-- [ ] **Step 2: Write `valagents/config.py`** (adapted from cosci — drop Elo/debate/proximity/budget; add `GateCfg`).
+- [ ] **Step 2: Write `valagents/config.py`** (drop Elo/debate/proximity/budget fields not needed here; add `GateCfg`).
 
 ```python
 """Typed config for validate-agents. Roles → models/temps; gate thresholds."""
@@ -211,7 +208,7 @@ Run: `pip install -e ".[dev]" && pytest tests/test_config.py -v`
 Expected: 2 passed. (`import valagents.llm` should also succeed — `python -c "import valagents.llm, valagents.run_log, valagents.web_search"`.)
 
 ```bash
-git add -A && git commit -m "chore: scaffold valagents package + copied infra + config"
+git add -A && git commit -m "chore: scaffold valagents package + config"
 ```
 
 ---
@@ -277,7 +274,7 @@ async def test_checked_double_failure_returns_none(caplog):
 - [ ] **Step 3: Implement `valagents/parse.py`.**
 
 ```python
-"""Verdict parsing. parse_label is copied from cosci; the strict tail is new."""
+"""Verdict parsing. parse_label handles label extraction; the strict tail is new."""
 from __future__ import annotations
 import logging
 import re
@@ -285,7 +282,7 @@ from valagents.llm import LLMClient
 
 log = logging.getLogger(__name__)
 
-def parse_label(text: str, *labels: str) -> str | None:        # copied from cosci/agents/base.py
+def parse_label(text: str, *labels: str) -> str | None:
     best = None
     for label in labels:
         for m in re.finditer(rf"\b{re.escape(label)}\s*:\s*<?\s*([A-Za-z0-9 _\-]+?)\s*>?(?:\s|$|[.,;])",
@@ -886,7 +883,7 @@ def test_fork_freezes_prior_version():
 
 ```python
 """Single-writer artifact store: immutable version chain + append-only event log.
-Version-don't-mutate is what makes Spec-4 parallel + repair safe."""
+Version-don't-mutate makes Spec-4 parallel + repair safe."""
 from __future__ import annotations
 from valagents.artifact import IdeaArtifact, CheckRecord
 from valagents import run_log
