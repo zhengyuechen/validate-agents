@@ -36,7 +36,7 @@ SUB-CLAIM ({ctype}): {statement}
 RETRIEVED LITERATURE:
 {articles}
 End with exactly:
-CLAIM: {cid} | SUPPORT: supported|unsupported|uncertain | INDEPENDENT_SOURCES: <n> | SOURCES: <locator(author)…|none> | BASIS: <…>"""
+CLAIM: {cid} | SUPPORT: supported|unsupported|uncertain | INDEPENDENT_SOURCES: <n> | SOURCES: <[A1], [A2], …|none> | BASIS: <…>"""
 
 GROUNDER_NOVELTY = """Position this claim against the closest prior work and name the delta — the \
 specific thing it asserts that prior work does not.

@@ -36,7 +36,7 @@ async def prove_claim(
         return CheckRecord(lens="prover", verdict="uncertain", basis="(unparseable)", tick=tick)
 
     fatal = tail["fatal_gap"].strip().lower().startswith("y")
-    gapped = tail["derivation"].strip().lower() == "gapped"
+    gapped = tail["derivation"].strip().lower().startswith("gapped")
     verdict = "fail" if fatal else ("uncertain" if gapped else "pass")
     # A prover pass is a self-standing check; counts as one independent source.
     indep = 1 if verdict == "pass" else 0
@@ -56,6 +56,6 @@ async def build_derivation(formal_claim: FormalClaim, claims: list[AtomicClaim],
         Gap(description=ck.basis, claim_id=c.id, fatal=(ck.verdict == "fail"))
         for c in claims
         for ck in c.checks
-        if ck.lens == "prover" and ck.verdict in ("fail", "uncertain") and ck.basis
+        if ck.lens == "prover" and ck.verdict in ("fail", "uncertain") and ck.basis is not None
     ]
     return Derivation(steps=steps, gaps=gaps)

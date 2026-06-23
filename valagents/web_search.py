@@ -67,16 +67,10 @@ async def search_articles(backend, query: str, max_results: int = 5) -> tuple[st
 
 
 async def safe_search(backend, query: str, max_results: int = 5) -> str:
-    """Search via ``backend`` and return a formatted article block. On ANY failure
-    (no backend, rate limit / HTTP 429, network error) return "" so the calling agent
-    degrades gracefully to parametric reasoning instead of failing the whole run."""
-    if backend is None:
-        return ""
-    try:
-        return format_articles(await backend.search(query, max_results=max_results))
-    except Exception as exc:
-        log.warning("grounding search failed (%s); falling back to parametric reasoning", exc)
-        return ""
+    """Thin wrapper around search_articles; returns only the formatted string.
+    On any failure (no backend, rate limit, network error) returns "" so callers
+    degrade gracefully to parametric reasoning instead of failing the whole run."""
+    return (await search_articles(backend, query, max_results))[0]
 
 
 class ArxivBackend:

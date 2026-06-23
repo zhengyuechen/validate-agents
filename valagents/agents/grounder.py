@@ -53,9 +53,6 @@ async def ground_claim(
     if tail is None:
         return CheckRecord(lens="grounder", verdict="uncertain", basis="(unparseable)", tick=tick)
 
-    n = as_int(tail["independent_sources"])
-    verdict = map_support_to_verdict(tail["support"], n)
-
     tokens = _parse_source_labels(tail["sources"])
     srcs = []
     for token in tokens:
@@ -72,12 +69,16 @@ async def ground_claim(
         else:
             srcs.append(Source(locator=token, relation="independent"))
 
+    matched_independent = sum(1 for s in srcs if s.relation == "independent" and s.url)
+    independent_sources = min(as_int(tail["independent_sources"]), matched_independent)
+    verdict = map_support_to_verdict(tail["support"], independent_sources)
+
     return CheckRecord(
         lens="grounder",
         verdict=verdict,
         basis=tail["basis"],
         sources=srcs,
-        independent_sources=n,
+        independent_sources=independent_sources,
         tick=tick,
     )
 
