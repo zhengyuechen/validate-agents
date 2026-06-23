@@ -195,3 +195,26 @@ class IdeaArtifact(BaseModel):
     def blocker(self) -> dict | None:
         _, b = self._evaluate()
         return b
+
+    @computed_field
+    @property
+    def load_bearing(self) -> str | None:
+        b = self._evaluate()[1]
+        if b and b.get("claim_id"):
+            return b["claim_id"]
+        rs = self.root_ancestors()
+        if not rs:
+            return None
+        deps = {c.id: 0 for c in self.claim_graph}
+        adj = {c.id: c.depends_on for c in self.claim_graph}
+        def reaches(start, target, seen=None):
+            seen = seen or set()
+            for d in adj.get(start, []):
+                if d == target or (d not in seen and reaches(d, target, seen | {d})):
+                    return True
+            return False
+        for c in self.claim_graph:
+            for other in self.claim_graph:
+                if other.id != c.id and reaches(other.id, c.id):
+                    deps[c.id] += 1
+        return max(rs, key=lambda c: (deps[c.id], c.id)).id
