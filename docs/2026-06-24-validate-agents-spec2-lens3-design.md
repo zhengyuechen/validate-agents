@@ -93,7 +93,8 @@ Two layers of defense, like lens 1: the restricted *parse* bounds which symbols/
   - `amplitude(var, window_frac)` — `(max − min) / 2` of `var` over the last `window_frac` (oscillation amplitude / limit-cycle size).
   - `settle_std(var, window_frac)` — standard deviation of `var` over the last `window_frac` (small ⇒ converged to a fixed point).
   - `max_value(var, window_frac)` / `min_value(var, window_frac)` — extrema over the last `window_frac`.
-  - (`growth_rate` — **deferred**, §1.)
+  - (`growth_rate` — **deferred**, §1; `time_to_threshold` also deferred — it brings event-detection semantics.)
+- **`window_frac` validity:** require `0 < window_frac ≤ 1`; the window is the last `ceil(window_frac × n_samples)` samples. A `window_frac` outside `(0, 1]`, or a window with **fewer than 2 samples** for `amplitude`/`settle_std` (which are meaningless on < 2 points; the others need ≥ 1), → **`uncertain`**.
 - **Structured criterion:** `op ∈ {ge, le, gt, lt, in}` against `threshold`. `in` means `threshold = [lo, hi]` and passes iff `lo ≤ observable ≤ hi` (**inclusive**). Evaluated in code per grid point.
 
 ### 3.6 Verdict logic (code, no LLM)
@@ -108,8 +109,10 @@ Two layers of defense, like lens 1: the restricted *parse* bounds which symbols/
 
 ### 3.8 Resource & expression caps — two layers, fail-closed
 - **Plan-declared caps** (preregistered, audited): `max_steps`, `max_grid_points`, `max_state_vars`, `max_expr_nodes`.
-- **Config ceilings** — a new `SimCfg` in `valagents/config.py`, absolute hard limits the plan cannot exceed. Defaults: `max_state_vars=8`, `max_expr_nodes=200`, `max_grid_points=400`, `max_steps=200_000`, **`min_grid_points=4`** (the floor below which robustness cannot be assessed, §3.2).
-- The runner rejects → `uncertain` (loud error) if **any** of: a plan-declared cap exceeds its config ceiling; `len(state_vars) > max_state_vars`; any parsed RHS node-count (`count_ops` / preorder length) `> max_expr_nodes`; grid size `> max_grid_points`; **grid size `< min_grid_points`** (not a real sweep); `n_steps > max_steps`. Expression-size caps bound the evaluator's cost even though no code runs — defense-in-depth against a pathological parsed expression.
+- **Config ceilings** — a new `SimCfg` in `valagents/config.py`, absolute hard limits the plan cannot exceed. Defaults: `max_state_vars=8`, `max_expr_nodes=200`, `max_grid_points=400`, `max_steps=200_000`, **`max_total_steps=2_000_000`** (the total-work cap, below), **`min_grid_points=4`** (the floor below which robustness cannot be assessed, §3.2).
+- **Plan-declared caps must be positive.** The schema defaults `max_steps`/`max_grid_points`/`max_state_vars`/`max_expr_nodes` to `0`; the runner treats a missing/zero (≤ 0) plan cap as **invalid → `uncertain`**, never as "unlimited" and never as accidentally stricter. A frozen plan must preregister positive caps.
+- **Total-work cap (fail early and loud).** The runner computes `total_steps = grid_size × n_steps` and rejects → `uncertain` if `total_steps > config.sim.max_total_steps`. This fails *before* integrating rather than leaning on the wall timeout (worst case under the per-axis ceilings alone would be `400 × 200_000 = 80M` steps).
+- The runner rejects → `uncertain` (loud error) if **any** of: a plan cap is ≤ 0; a plan-declared cap exceeds its config ceiling; `len(state_vars) > max_state_vars`; any parsed RHS node-count (`count_ops` / preorder length) `> max_expr_nodes`; grid size `> max_grid_points`; **grid size `< min_grid_points`** (not a real sweep); `n_steps > max_steps`; **`grid_size × n_steps > max_total_steps`**. Expression-size caps bound the evaluator's cost even though no code runs — defense-in-depth against a pathological parsed expression.
 
 ---
 
@@ -150,7 +153,8 @@ A simulation verdict becomes an **`Attack(type="simulation")`** on the `target_c
 - **Finite-real / Pow:** a negative base to a fractional exponent (`(-1)**0.5`) → complex → `uncertain`; an RHS that drives the state to `Inf`/`NaN` → `uncertain` with the loud non-finite record; an object/complex value anywhere → `uncertain`.
 - **RK4 correctness + determinism:** `dx/dt = −x` integrates to `x0·e^{−t}` within tolerance; a harmonic oscillator's `amplitude` is stable; the **same frozen plan run twice yields an identical result** (bit-reproducible).
 - **Robustness sweep:** a criterion holding across the whole `param_sweep × init_sweep` grid → **PASS**; a knife-edge plan (holds at one grid point, `pass_fraction < robust_frac`) → **FAIL**. Grid precedence: a swept name overrides its fixed counterpart.
-- **Caps (each → `uncertain`):** missing required field; grid size `> max_grid_points`; **grid size `< min_grid_points` (a no-sweep / single-point plan — not a trivial pass)**; `n_steps > max_steps`; RHS nodes `> max_expr_nodes`; `state_vars > max_state_vars`; a plan cap exceeding its config ceiling.
+- **Caps (each → `uncertain`):** missing required field; a **zero/missing plan cap** (≤ 0); grid size `> max_grid_points`; **grid size `< min_grid_points` (a no-sweep / single-point plan — not a trivial pass)**; `n_steps > max_steps`; **`grid_size × n_steps > max_total_steps` (total-work cap)**; RHS nodes `> max_expr_nodes`; `state_vars > max_state_vars`; a plan cap exceeding its config ceiling.
+- **`window_frac` validity (each → `uncertain`):** `window_frac > 1` or `≤ 0`; a window with `< 2` samples for `amplitude`/`settle_std`.
 - **Gate mapping (FakeLLM designer + real executor):**
   - robust **FAIL** on a `load_bearing` `novel_core` mechanistic claim → **landed `fatal`** `type="simulation"` attack → `verdict_class == "challenged"`;
   - robust **FAIL** on a non-`load_bearing` (or non-`novel_core`) claim → **`major`** → `challenged`;
@@ -170,7 +174,7 @@ A simulation verdict becomes an **`Attack(type="simulation")`** on the `target_c
 - **L3-D3** v1 anti-overfitting discipline = **robustness sweep** over `param_sweep × init_sweep`; PASS iff the criterion holds across `≥ robust_frac` of the grid. A grid below `min_grid_points` is **not a sweep → `uncertain`** (closes the degenerate single-point "pass"). **Negative-control / discrimination → slice-2.**
 - **L3-D4** Verdict computed in **code** (F3): fixed observable vocabulary + structured `criterion` + sweep aggregation. `confirm_if`/`refute_if` are display-only glosses. The Simulation-Designer emits the plan only and never sees the result.
 - **L3-D5** Safe numeric path = a **trusted expression-tree evaluator** over the restricted-parsed SymPy `Expr` (whitelisted node types only); **no `lambdify`, no `eval`, no generated code.** Plus the **finite-real-float** requirement and **narrow `Pow`** (no complex continuation) — non-finite/complex anywhere → `uncertain`.
-- **L3-D6** Isolation = subprocess + rlimits + no-network + restricted parser + **typed size/expression caps** (two layers: plan-declared caps under config ceilings) — sufficient because no arbitrary code runs (F4).
+- **L3-D6** Isolation = subprocess + rlimits + no-network + restricted parser + **typed size/expression caps** (two layers: plan-declared caps under config ceilings) — sufficient because no arbitrary code runs (F4). Plan caps must be **positive** (zero/missing → `uncertain`, never "unlimited"); a **total-work cap** (`grid_size × n_steps ≤ max_total_steps`) fails a pathological sweep early, before the wall timeout.
 - **L3-D7** **Conservative gate mapping (attack path):** robust **FAIL → `challenged`** (severity `fatal` iff target is `load_bearing` AND `novel_core`, else `major`), **never refuted**; robust **PASS → discounted `survived`** attack (no `CheckRecord`, no `independent_sources`, no standalone validation); `uncertain → no attack` (F2). `Attack(type="simulation")`.
 - **L3-D8** **Anti-laundering (L2-D9 carried):** `"simulation"` added to `attempted` only on a decisive verdict; never on `uncertain`. `"simulation"` is an additional probe category and **does not** satisfy the mandatory `"magnitude"` teeth requirement. `_evaluate()` unchanged.
 - **L3-D9** **No-op when no mechanistic claim** — Lens 3 never invents a mechanism target.
