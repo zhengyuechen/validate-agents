@@ -158,28 +158,84 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
     novelty = await ground_novelty(art.formal_claim, backend, llm, cfg)
     if novelty is not None:
         store.set("novelty", novelty)
+        store.record({
+            "event": "novelty",
+            "position": novelty.position,
+            "delta": novelty.delta,
+        })
     completion = await complete_idea(art, llm, cfg)
     if completion is not None:
         store.set("completion", completion)
+        store.record({
+            "event": "completion",
+            "status": completion.status,
+            "weakest_link": completion.weakest_link,
+        })
     bridge = await build_theory_bridge(art, llm, cfg)
     if bridge is not None:
         store.set("theory_bridge", bridge)
+        store.record({
+            "event": "theory_bridge",
+            "family": bridge.theory_family,
+            "nearest": bridge.nearest_theories,
+        })
     positioning = await position_prior_art(art, llm, cfg)
     if positioning is not None:
         store.set("prior_art_positioning", positioning)
-    store.set("known_limits", await check_known_limits(art, llm, cfg))
+        store.record({
+            "event": "positioning",
+            "closest_prior": positioning.closest_prior,
+            "what_is_new": positioning.what_is_new,
+        })
+    known_limits = await check_known_limits(art, llm, cfg)
+    store.set("known_limits", known_limits)
+    if known_limits:
+        store.record({
+            "event": "known_limits",
+            "count": len(known_limits),
+            "unclear": sum(1 for item in known_limits if item.recovered == "unclear"),
+            "failed": sum(1 for item in known_limits if item.recovered == "no"),
+        })
     case = await build_convincing_case(art, llm, cfg)
     if case is not None:
         store.set("convincing_case", case)
-    store.set("predictions", await predict(art.formal_claim, novelty, llm, cfg))
+        store.record({
+            "event": "convincing_case",
+            "skeptic_tests": case.skeptic_tests,
+        })
+    predictions = await predict(art.formal_claim, novelty, llm, cfg)
+    store.set("predictions", predictions)
+    store.record({
+        "event": "predictions",
+        "count": len(predictions),
+        "measurable": sum(1 for item in predictions if item.measurable),
+    })
     attacks, surface, per_claim = await red_team(art, llm, cfg, tick=tick)
     store.set("attacks", attacks)
     store.set("attack_surface", surface)
+    store.record({
+        "event": "redteam",
+        "attacks": len(attacks),
+        "landed": sum(1 for attack in attacks if attack.status == "landed"),
+        "attempted": surface.attempted,
+    })
     claim_ids = {claim.id for claim in art.claim_graph}
     for claim_id, record in per_claim:
         if claim_id in claim_ids:
             store.add_check(claim_id, record)
-    store.set("validation_plan", await design_validation(art, llm, cfg))
+            store.record({
+                "event": "redteam_check",
+                "claim": claim_id,
+                "verdict": record.verdict,
+            })
+    plan = await design_validation(art, llm, cfg)
+    store.set("validation_plan", plan)
+    if plan is not None:
+        store.record({
+            "event": "validation_plan",
+            "cost": plan.cost,
+            "test": plan.decisive_test,
+        })
 
 
 async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:

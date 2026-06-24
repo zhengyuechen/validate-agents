@@ -103,14 +103,16 @@ h1, h2, h3 { font-family: "IBM Plex Serif", Georgia, serif; font-weight: 500; le
   font-family: "IBM Plex Mono", monospace; font-size: 0.73rem; line-height: 1.35;
   overflow-y: auto; flex: 1 1 auto;
 }
-.event-row { display: grid; grid-template-columns: 1.9rem 9px 1fr; align-items: baseline; gap: 0.4rem; padding: 0.28rem 0; border-bottom: 1px dashed var(--rule); }
-.event-tick { color: var(--muted); text-align: right; }
-.event-text { color: var(--ink-soft); word-break: break-word; }
+.event-row { display: grid; grid-template-columns: 4.35rem 9px minmax(0, 1fr); align-items: baseline; gap: 0.35rem; padding: 0.28rem 0; border-bottom: 1px dashed var(--rule); }
+.event-tick { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.event-text { color: var(--ink-soft); word-break: break-word; min-width: 0; }
 .event-dot { width: 7px; height: 7px; border-radius: 50%; align-self: center; background: var(--accent-2); }
 .event-dot.run, .event-dot.task { background: var(--accent-2); }
 .event-dot.gen { background: var(--accent); }
+.event-dot.bridge { background: #7a5ea8; }
 .event-dot.search, .event-dot.review { background: #4a8aa8; }
 .event-dot.match { background: #7a5ea8; }
+.event-dot.case { background: #8b6f3d; }
 .event-dot.evolve { background: #2f8f6b; }
 .event-dot.done { background: var(--safe); }
 .event-dot.warn, .event-dot.abort { background: var(--warn); }
