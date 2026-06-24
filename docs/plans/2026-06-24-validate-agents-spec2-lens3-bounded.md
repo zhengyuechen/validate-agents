@@ -253,7 +253,7 @@ git commit -m "feat(sim): max_abs observable + _eval_expr allow_nonfinite mode (
 
 **Interfaces:**
 - Consumes: `_eval_expr(..., allow_nonfinite=True)` (Task 2).
-- Produces: `_rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs) -> (traj, overflow_step)`. `overflow_step` is the int step (1..n_steps) at which the state first diverged (`inf` or `|state| > _DIVERGENCE_MAG`), or `None` if the trajectory stayed finite and `<= _DIVERGENCE_MAG`. On divergence, `traj` is the finite prefix `traj[0:overflow_step]` (rows 0..overflow_step-1). A non-finite **initial** condition raises; a `nan` mid-run (domain error, e.g. log of a negative) raises. Module constant `_DIVERGENCE_MAG = 1e100`.
+- Produces: `_rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs) -> (traj, overflow_step)`. `overflow_step` is the int step (1..n_steps) at which the state first diverged (`inf` or `|state| > _DIVERGENCE_MAG`), or `None` if the trajectory stayed finite and `<= _DIVERGENCE_MAG`. On divergence, `traj` is the finite prefix `traj[0:overflow_step]` (rows 0..overflow_step-1). A non-finite **initial** condition raises plain `ValueError`; a `nan` mid-run (a *domain* error — the RHS became undefined at a finite, in-bounds state, e.g. `log` of a negative) raises **`_DomainError(ValueError)`** with a `"domain_error"` message so the inconclusive sweep can tell "model ill-posed at a reachable state" apart from "couldn't confirm divergence". Module-level: `class _DomainError(ValueError): pass`, constant `_DIVERGENCE_MAG = 1e100`. (`_DomainError` is a `ValueError` subclass, so every existing `except ValueError`/`except Exception` path still maps it to uncertain — it only adds a recognizable label.)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -286,13 +286,14 @@ def test_capturing_integrator_captures_divergence():
 
 def test_capturing_integrator_nan_domain_error_raises():
     import sympy, numpy as np
-    from valagents.sandbox.runner import _rk4_integrate_capturing, _npfuncs
+    from valagents.sandbox.runner import _rk4_integrate_capturing, _npfuncs, _DomainError
     rhs = _exprs({"x": "log(x)"}, ["x"])             # x crosses below 0 -> log(neg) -> nan -> domain error
     try:
         _rk4_integrate_capturing(rhs, {"x": 0}, {}, [-1.0], 10, 0.1, np, _npfuncs(sympy, np))
-        assert False, "expected ValueError (domain error -> uncertain, NOT a captured divergence)"
-    except ValueError:
-        pass
+        assert False, "expected _DomainError (domain error -> uncertain, NOT a captured divergence)"
+    except _DomainError as e:
+        assert "domain_error" in str(e)              # distinct diagnostic label, not a generic ValueError
+
 
 def test_capturing_integrator_nonfinite_initial_raises():
     import sympy, numpy as np
@@ -315,6 +316,11 @@ Expected: FAIL — `cannot import name '_rk4_integrate_capturing'`.
 In `valagents/sandbox/runner.py`, immediately after `_rk4_integrate` ends (after runner.py:124), add:
 
 ```python
+class _DomainError(ValueError):
+    """Raised when the RHS becomes undefined at a finite, in-bounds state (a NaN: e.g. log/sqrt of a negative).
+    A ValueError subclass, so every existing except-path still maps it to uncertain; the distinct type +
+    'domain_error' message let an inconclusive sweep label a well-posedness defect, not a missed divergence."""
+
 _DIVERGENCE_MAG = 1e100   # |state| past this is treated as a numerical divergence. Verdict-invariant (BP-1):
                           # it only sets the t_of scale; t_of's converge/recede behaviour is the same for any
                           # large threshold, so the bounded verdict does not depend on the exact value.
@@ -323,10 +329,14 @@ def _rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, n_steps, dt, np
     """Like _rk4_integrate but RETURNS (traj, overflow_step) instead of raising on a divergent state.
     overflow_step = first step (1..n_steps) at which the state diverged (an infinity, or |state| > _DIVERGENCE_MAG),
     or None if the whole trajectory stays finite and within _DIVERGENCE_MAG. On divergence, traj is the finite
-    prefix traj[0:overflow_step]. A non-finite INITIAL condition raises; a NaN mid-run (a domain error such as
-    log of a negative, or inf-inf) raises -> uncertain (a domain error is not a divergence). Deterministic,
-    fixed-step (L3-D11 holds). Used ONLY by the bounded honesty check; derivatives are evaluated with
-    allow_nonfinite=True so a blow-up yields inf (classified here) rather than a swallowed ValueError."""
+    prefix traj[0:overflow_step]. A non-finite INITIAL condition raises ValueError; a NaN mid-run (a domain error
+    such as log of a negative) raises _DomainError -> uncertain (a domain error is about DOMAIN, not magnitude,
+    so it can neither confirm nor refute a boundedness claim; BP-1). Deterministic, fixed-step (L3-D11 holds).
+    Used ONLY by the bounded honesty check; derivatives are evaluated with allow_nonfinite=True so a blow-up
+    yields inf (classified here as divergence) rather than a swallowed ValueError.
+    Known edge (errs safe): a blow-up that first manifests as inf-inf -> NaN INSIDE one RK4 stage, before that
+    step's magnitude check fires, is raised as a domain error (uncertain) rather than a divergence. It needs a
+    contrived RHS (two individually-overflowing terms subtracting) and errs toward uncertain, so it is acceptable."""
     nvars = len(rhs_exprs)
     y = np.array(y0, dtype=float)
     if not np.all(np.isfinite(y)) or np.iscomplexobj(y):
@@ -348,7 +358,7 @@ def _rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, n_steps, dt, np
         k4 = deriv(y + dt * k3)
         y = y + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
         if np.iscomplexobj(y) or np.any(np.isnan(y)):
-            raise ValueError(f"nan/complex state at step {step + 1}")          # domain error -> uncertain
+            raise _DomainError(f"domain_error: RHS undefined at a reachable finite state (step {step + 1})")
         if np.any(np.isinf(y)) or np.max(np.abs(y)) > _DIVERGENCE_MAG:
             return traj[:step + 1], step + 1                                   # divergence captured
         traj[step + 1] = y
@@ -486,7 +496,7 @@ git commit -m "feat(sim): _converged_monotone predicate (monotone+shrinking, rej
      - if the refinement's kind != base kind (div↔breach morph) → return `("uncertain", {... "max_abs": "morph_unconfirmed" ...}, steps_used)`.
      - else append `q_k`.
   3. **Decide** from `seq = [q0, q1, ...]` (all same kind, none vanished):
-     - `kind == "div"`: if `_converged_monotone(seq, conv_rtol)` AND `seq[-1] <= seq[0]` (non-increasing, not receding) AND `seq[-1] < t_end * (1.0 - conv_rtol)` (§3b: t* strictly inside window) → return `("unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": len(seq)-1}, steps_used)`; else `("uncertain", {"max_abs": "refine_budget_exhausted", "t_star": (seq[-1] if converged-but-near-end else None), "refinements": len(seq)-1}, steps_used)`.
+     - `kind == "div"`: if `_converged_monotone(seq, conv_rtol)` AND `seq[-1] < t_end * (1.0 - conv_rtol)` (§3b: t* strictly inside window) → return `("unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": len(seq)-1}, steps_used)`; else `("uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": len(seq)-1}, steps_used)`. **(Finding A: NO `seq[-1] <= seq[0]` clause — `_converged_monotone`'s shrinking test already rejects a receding `t_of`, and a non-increasing clause would false-uncertain a genuine singularity whose numerical `t_of` converges from below.)**
      - `kind == "breach"`: if `_converged_monotone(seq, conv_rtol)` AND `seq[-1] > bound` → return `("unbounded", {"max_abs": seq[-1], "t_star": None, "refinements": len(seq)-1}, steps_used)`; else `("uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": len(seq)-1}, steps_used)`.
 
   `steps_used` accumulates `n_steps + sum(n_k actually run)`.
@@ -587,7 +597,10 @@ def _bounded_observe(rhs_exprs, var_index, env_base, y0, n_steps, dt, observable
         seq.append(rq)
     refs = len(seq) - 1
     if kind == "div":
-        converged = (_converged_monotone(seq, conv_rtol) and seq[-1] <= seq[0]
+        # Finding A: rely on _converged_monotone (its shrinking test already rejects a receding t_of) + the §3b
+        # window guard. A "seq[-1] <= seq[0]" clause would assume t_of approaches t* FROM ABOVE and would
+        # false-uncertain a genuine singularity whose numerical t_of converges from below — drop it.
+        converged = (_converged_monotone(seq, conv_rtol)
                      and seq[-1] < t_end * (1.0 - conv_rtol))               # §3b: t* strictly inside the window
         if converged:
             return "unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": refs}, steps_used
@@ -663,6 +676,15 @@ def test_run_bounded_determinism():
              sim_criterion={"op": "le", "threshold": ["2.0"]}, robust_frac="1")
     a = run_plan(splan(**p), cfg()); b = run_plan(splan(**p), cfg())
     assert a.measured == b.measured and a.verdict == b.verdict
+
+def test_run_bounded_domain_error_surfaces_label():
+    # x' = log(x), x0=1 -> x decays through 0 -> log(neg) -> nan domain error at a finite, in-bounds state.
+    # Whole run -> uncertain, and the diagnostic label distinguishes "model ill-posed" from "couldn't confirm".
+    v = run_plan(splan(rhs={"x": "log(x) + 0*a"}, init={"x": "1.0"}, t_span=["0", "5"], dt="0.01",
+                       observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "le", "threshold": ["2.0"]}, robust_frac="1"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+    assert "domain_error" in (v.result.error or "")
 
 def test_run_bounded_discrimination_uncertain_propagates():
     # null arm a=0 leaves x' = x^2 -> diverges; mechanism arm a large keeps it bounded. If EITHER arm is
@@ -915,4 +937,11 @@ git commit -m "feat(sim): teach the bounded claim (max_abs + le bound + window_f
 
 **Type consistency:** `_bounded_observe` returns `(verdict:str, info:dict, steps_used:int)` everywhere it's defined (Task 5) and called (Task 6). `_converged_monotone(seq, rtol) -> bool` consistent (Task 4 def, Task 5 calls). `_rk4_integrate_capturing(...) -> (traj, overflow_step)` consistent (Task 3 def, Task 5 `classify`). `_eval_expr(..., allow_nonfinite=False)` consistent (Task 2 def, Task 3 `deriv` call). `_DIVERGENCE_MAG` defined once (Task 3). ✅
 
-**Decision-log addition:** add **BP-1** (overflow trigger: `inf`/`_DIVERGENCE_MAG` = divergence; `nan` = domain error → uncertain; `_eval_expr.allow_nonfinite` relaxes only the finiteness raise) to the spec's §9 decision log as part of Task 3's commit, so the durable record matches the code.
+**Decision-log addition:** BP-1 (overflow trigger: `inf`/`_DIVERGENCE_MAG` = divergence; `nan` = domain error → `_DomainError` → uncertain; `_eval_expr.allow_nonfinite` relaxes only the finiteness raise) is already in the spec's §9 decision log — keep code and spec in sync if either moves.
+
+## Review Routing (for the controller running subagent-driven execution)
+
+- **Tasks 4 and 5 carry the only logic with no external ground truth** (`_converged_monotone` and the `_bounded_observe` decision tree). Every prior Lens-3 slice's real bug lived exactly here (the params↔param_sweep circularity hole; persistence-vs-`t*`). Point the Task 4 and Task 5 reviewers specifically at the **convergence boundary** — the monotone/shrinking predicate and the classify→refine→decide branches — NOT at the integrator arithmetic (Task 3) which has clear ground truth.
+- **Finding A** (the dropped `seq[-1] <= seq[0]` clause) is resolved in the plan; the Task 5 reviewer should confirm the div branch relies on `_converged_monotone` + the §3b window guard alone, and that a from-below-converging singularity is NOT false-uncertained.
+- **Finding B** (the inf−inf→nan-in-one-stage edge) is documented in the Task 3 integrator docstring as a known safe-erring limitation — the Task 3 reviewer should confirm the docstring note is present, not treat the edge as a defect to fix.
+- The Task 5 reviewer must also confirm the **finite-breach branch** has both a converging→unbounded and a receding→uncertain unit test (the self-review's noted gap).
