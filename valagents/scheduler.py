@@ -67,6 +67,7 @@ async def run_entry_gates(store: ArtifactStore, raw_idea: str, backend, llm, cfg
 
 from valagents.agents.grounder import ground_claim
 from valagents.agents.grounder import ground_novelty
+from valagents.agents.magnitude_designer import design_magnitude
 from valagents.agents.prover import prove_claim, build_derivation
 from valagents.agents.computation_designer import design_computation
 from valagents.agents.completer import complete_idea
@@ -237,6 +238,7 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
                 "claim": claim_id,
                 "verdict": record.verdict,
             })
+    await run_magnitude_checks(store, llm, cfg, tick=tick + 500)
     plan = await design_validation(art, llm, cfg)
     store.set("validation_plan", plan)
     if plan is not None:
@@ -245,6 +247,29 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
             "cost": plan.cost,
             "test": plan.decisive_test,
         })
+
+
+async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
+    art = store.current
+    for p in art.predictions:
+        if not p.measurable:
+            continue
+        plan = await design_magnitude(p, art, llm, cfg)
+        if plan is None:
+            continue
+        from valagents.sandbox.executor import run_plan
+        from valagents.computation import verdict_to_attack
+        adir = f"{cfg.results_dir}/computations/magnitude" if getattr(cfg, "results_dir", None) else None
+        verdict = run_plan(plan, cfg, artifacts_dir=adir)
+        store.record({"event": "magnitude_executed", "verdict": verdict.verdict, "computed": verdict.measured})
+        if verdict.verdict == "uncertain":
+            continue                                  # FAIL-CLOSED: no attack, no attempted-mark (L2-D9), F2
+        # attack path (sensitivity_ratio): decisive verdict -> Attack + mark "magnitude" attempted
+        attack = verdict_to_attack(verdict, plan.target_claim_id, plan.discriminating, tick=tick)
+        art.attacks = art.attacks + [attack]
+        if art.attack_surface is not None and "magnitude" not in art.attack_surface.attempted:
+            art.attack_surface.attempted = art.attack_surface.attempted + ["magnitude"]
+        tick += 1
 
 
 async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int) -> None:

@@ -70,6 +70,7 @@ BASE = {
     "arbiter": "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: t",
     "prover": "DERIVATION: complete | GAPS: none | FATAL_GAP: no",
     "computation_designer": "no plan",
+    "magnitude_designer": "",
 }
 
 
