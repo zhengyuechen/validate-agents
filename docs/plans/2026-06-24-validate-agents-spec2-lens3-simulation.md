@@ -134,6 +134,8 @@ In `valagents/computation.py`, change the `kind` line and add the simulation blo
     max_grid_points: int = 0
     max_state_vars: int = 0
     max_expr_nodes: int = 0
+    # NOTE: max_total_steps is CONFIG-ONLY (SimCfg, Task 4) — a derived ceiling on grid_size x n_steps.
+    #       Do NOT add it to ComputationPlan; it is never a plan-declared field.
 ```
 
 - [ ] **Step 4: Add `verdict_to_sim_attack`**
@@ -259,6 +261,8 @@ In `valagents/sandbox/runner.py`, add (after `_parse_number`, before `_run`):
 
 ```python
 def _npfuncs(sympy, np):
+    # Unary whitelisted functions only. NOTE: sqrt(x) arrives as Pow(x, 1/2) after parse_expr(evaluate=True),
+    # so it is handled by the _eval_expr Pow branch (with the narrow-Pow complex guard) — not listed here.
     return {sympy.sin: np.sin, sympy.cos: np.cos, sympy.tan: np.tan, sympy.exp: np.exp,
             sympy.log: np.log, sympy.Abs: np.abs, sympy.sign: np.sign, sympy.tanh: np.tanh}
 
@@ -270,7 +274,10 @@ def _eval_expr(node, env, np, npfuncs):
         name = node.name
         if name not in env:
             raise ValueError(f"unbound symbol: {name}")
-        return float(env[name])
+        val = float(env[name])
+        if not math.isfinite(val):                       # finite-real check at the symbol leaf too
+            raise ValueError(f"non-finite symbol value: {name}")
+        return val
     if node.is_Number or node.is_NumberSymbol:       # Integer/Float/Rational/pi/E
         return float(node)
     if node.is_Add:
@@ -302,10 +309,13 @@ def _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
     """Deterministic fixed-step RK4. rhs_exprs: list of (var, Expr); var_index: var->row.
     env_base: fixed params (symbol->float). Returns trajectory (n_steps+1, n_vars). Raises on non-finite."""
     nvars = len(rhs_exprs)
-    def deriv(y):
+    y = np.array(y0, dtype=float)
+    if not np.all(np.isfinite(y)) or np.iscomplexobj(y):     # finite-real INITIAL condition (before any step)
+        raise ValueError("non-finite initial condition")
+    def deriv(yv):
         env = dict(env_base)
         for var, i in var_index.items():
-            env[var] = float(y[i])
+            env[var] = float(yv[i])
         d = np.empty(nvars, dtype=float)
         for k, (_, expr) in enumerate(rhs_exprs):
             d[k] = _eval_expr(expr, env, np, npfuncs)
@@ -313,7 +323,6 @@ def _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
             raise ValueError("non-finite derivative")
         return d
     traj = np.empty((n_steps + 1, nvars), dtype=float)
-    y = np.array(y0, dtype=float)
     traj[0] = y
     for step in range(n_steps):
         k1 = deriv(y)
@@ -570,8 +579,10 @@ def test_single_point_grid_uncertain():
     assert v.verdict == "uncertain" and not v.result.ok
 
 def test_total_work_cap_uncertain():
-    # grid 5 * n_steps(=2_000_000/?) ... force total > ceiling via a long t_span + small dt
-    v = run_plan(splan(t_span=["0", "5000"], dt="0.001", max_steps=200_000_000), cfg())
+    # grid 400 * n_steps 10_000 = 4_000_000 > max_total_steps 2_000_000; EVERY per-axis cap is within ceiling
+    # (so it fails on the total-work cap, not on a per-axis breach).
+    v = run_plan(splan(param_sweep={"a": ["0", "1", "400"]}, t_span=["0", "10"], dt="0.001",
+                       max_steps=200_000, max_grid_points=400), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
 
 def test_dunder_rhs_uncertain():
@@ -630,7 +641,7 @@ In `valagents/sandbox/executor.py`, in `run_plan`, replace the `input=plan.model
             ...
 ```
 
-(`_save(artifacts_dir, plan, result)` continues to persist `plan.model_dump_json()` — the original frozen plan, without the injected ceilings.) Symbolic/magnitude payloads are byte-unchanged (the `if` is the only new code).
+(`_save(artifacts_dir, plan, result)` continues to persist `plan.model_dump_json()` — the original frozen plan, without the injected ceilings.) Symbolic/magnitude payloads are byte-unchanged (the `if` is the only new code). **`json` is already imported at the top of `executor.py`** — no new import needed.
 
 - [ ] **Step 5: Implement `_run_simulation` + dispatch**
 
@@ -669,8 +680,12 @@ def _run_simulation(plan: dict) -> dict:
     parse_num = lambda s: _parse_number(s, glob)
     npfuncs = _npfuncs(sympy, np)
     try:
-        # parse RHS (restricted); dunder reject inside _parse path; node-count cap
-        local = {n: sympy.Symbol(n) for n in state_vars}
+        # The restricted parser is aware of state vars AND parameter names (fixed params + swept params),
+        # so RHS like "-a*x" parses; any free symbol OUTSIDE that declared set is rejected up front
+        # (forbids arbitrary undeclared names — fail-closed, not deferred to an eval-time unbound error).
+        allowed = list(state_vars) + list(plan.get("params", {}).keys()) + list(plan.get("param_sweep", {}).keys())
+        local = {n: sympy.Symbol(n) for n in allowed}
+        allowed_syms = set(local.values())
         rhs_exprs = []
         for var in state_vars:
             src = str(plan["rhs"].get(var, ""))
@@ -679,6 +694,8 @@ def _run_simulation(plan: dict) -> dict:
             if "__" in src:
                 return _u("rejected: '__' in rhs")
             expr = parse_expr(src, local_dict=local, global_dict=glob, evaluate=True)
+            if not expr.free_symbols <= allowed_syms:
+                return _u(f"rhs '{var}' references undeclared symbol(s): {expr.free_symbols - allowed_syms}")
             if expr.count_ops() + 1 > int(plan["max_expr_nodes"]):
                 return _u(f"rhs '{var}' exceeds max_expr_nodes")
             rhs_exprs.append((var, expr))
@@ -808,6 +825,12 @@ async def test_designer_emits_plan_only():
     assert p is not None and p.kind == "simulation" and p.primitive == "ode_integrate"
     assert p.target_claim_id == "m1"
     assert "ComputationVerdict" not in inspect.getsource(design_simulation)   # F1: no verdict
+
+async def test_designer_malformed_json_returns_none():
+    s = _store()
+    assert await design_simulation(s.current.claim_graph[0], s.current, router("no json here at all"), cfg()) is None
+    bad = router("```json\n{not valid json,,}\n```")
+    assert await design_simulation(s.current.claim_graph[0], s.current, bad, cfg()) is None
 
 async def test_robust_fail_lands_fatal_and_challenges():
     s = _store(role="novel_core", load_bearing=True)
