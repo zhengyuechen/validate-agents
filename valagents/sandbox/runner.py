@@ -329,6 +329,9 @@ def _run_simulation(plan: dict) -> dict:
         base_params = {k: parse_num(v) for k, v in plan.get("params", {}).items()}
         base_init = {k: parse_num(v) for k, v in plan["init"].items()}
         null_parsed = {k: parse_num(v) for k, v in null_overrides.items()} if null_overrides else {}
+        rf = parse_num(plan["robust_frac"])
+        if not (0.0 < rf <= 1.0):
+            return _u(f"robust_frac must be in (0, 1]: {rf}")
         passes = 0
         detail = []                                 # per-grid-point audit table (persisted via stdout.txt)
         for pov, iov in grid:                       # swept overrides fixed
@@ -352,9 +355,6 @@ def _run_simulation(plan: dict) -> dict:
             if point_pass:
                 passes += 1
         frac = passes / gsize
-        rf = parse_num(plan["robust_frac"])
-        if not (0.0 < rf <= 1.0):
-            return _u(f"robust_frac must be in (0, 1]: {rf}")
         robust = frac >= rf
         if null_overrides:
             computed = f"discriminating: {passes}/{gsize} ({frac:.2f} >= {plan['robust_frac']})"
