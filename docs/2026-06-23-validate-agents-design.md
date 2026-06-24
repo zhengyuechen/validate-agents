@@ -373,8 +373,16 @@ Seed: *"a new quantum gravity theory predicts faster-than-light signalling at lo
 - **Formalizer** → `FALSIFIABLE: yes`; entry gates pass; main claims A and B survive their lens checks.
 - **known_limits** names *special relativity causality (no FTL signalling)* as unrecovered.
 - **inject_limit_checks** promotes this to load-bearing claim L1 (type: mathematical, origin: limit_recovery).
-- **Prover** on L1 returns `GAPS: CONTRADICTION: FTL signalling violates SR causality bound`, triggering `verdict = fail`.
-- `L1.status = fail` → gate fires: `status = refuted`, `verdict_class = refuted`. The idea is killed on the defensible ground of contradicting established theory.
+- **Prover** on L1 returns `FATAL_GAP: yes` — the reduction cannot hold: recovering the idea would require violating the SR causality bound — so `L1`'s `CheckRecord.verdict = fail`.
+- `L1.status = fail` → gate fires (`any root-ancestor fail → REFUTED`): `status = refuted`, `verdict_class = refuted`. The idea is killed on the defensible ground of contradicting established theory.
+
+**Contrast — *novel and unsupported* stays `promising`, NOT `refuted`**
+Seed: *"a previously-unreported coupling between two fields produces a small measurable shift in a third."*
+- **Formalizer** → `FALSIFIABLE: yes`; faithful; decomposed into checkable claims.
+- **Grounder** finds *no* supporting literature → `SUPPORT: unsupported` maps to `uncertain`, **not `fail`** (D13: absence of evidence is not evidence of absence — literature alone never decides falsity).
+- **known_limits**: the idea contradicts *no* established limit; it is merely new.
+- → `status = needs_experiment`, `verdict_class = promising`; the Validation-designer emits the decisive test as the path forward.
+- **The asymmetry that makes the tool credible:** refutation requires an *explicit contradiction* — a failed load-bearing limit-recovery (above) or a landed counterexample — **never mere novelty or thin literature.** A new idea is taken seriously and pointed at its decisive test; only an idea that contradicts established theory is killed.
 
 ---
 
