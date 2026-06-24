@@ -3,7 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from valagents.artifact import FormalClaim, IdeaArtifact
-from valagents.web.app import create_app
+from valagents.web.app import _coerce_references, create_app
 
 
 def write_config(path, results_dir):
@@ -72,3 +72,17 @@ def test_web_config_put_validates_and_writes(tmp_path):
 
     assert resp.status_code == 200
     assert "backend: arxiv" in config_path.read_text()
+
+
+def test_web_references_accept_existing_path_or_inline_ids(tmp_path):
+    refs = tmp_path / "refs.txt"
+    refs.write_text("2401.12345\n")
+    assert _coerce_references(str(refs), str(tmp_path), "run-1") == str(refs)
+
+    inline = _coerce_references("2401.12345, 10.1234/example", str(tmp_path), "run-2")
+
+    assert inline == str(tmp_path / ".references" / "run-2.txt")
+    assert (tmp_path / ".references" / "run-2.txt").read_text().splitlines() == [
+        "2401.12345",
+        "10.1234/example",
+    ]

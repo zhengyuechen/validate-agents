@@ -36,6 +36,29 @@ def _load_json(path: Path, default):
     return json.loads(path.read_text())
 
 
+def _coerce_references(value: str | None, results_base: str, run_id: str) -> str | None:
+    """Accept either an existing refs file path or inline arXiv/DOI identifiers."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    path = Path(text).expanduser()
+    if path.exists():
+        return str(path)
+    refs_dir = Path(results_base) / ".references"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    inline_path = refs_dir / f"{run_id}.txt"
+    if text.startswith("["):
+        inline_path.write_text(text)
+    else:
+        lines = [
+            part.strip()
+            for part in text.replace(",", "\n").replace(";", "\n").splitlines()
+            if part.strip()
+        ]
+        inline_path.write_text("\n".join(lines) + "\n")
+    return str(inline_path)
+
+
 def _read_run(results_base: str, run_id: str) -> dict:
     base = Path(results_base)
     artifact_path = base / f"{run_id}.json"
@@ -82,13 +105,14 @@ async def execute_run(run_id, seed, cfg, llm, backend, registry, results_base, r
     run_log.bind(run_log.events_path(results_base, run_id))
     run_log.emit("run_started", seed=seed)
     try:
+        refs = _coerce_references(references_path, results_base, run_id)
         out = await run_cli(
             seed,
             llm,
             cfg,
             backend=backend,
             out_dir=results_base,
-            references_path=references_path,
+            references_path=refs,
             run_id=run_id,
         )
         rec.update(status="done", out=out["json_path"], error=None)
