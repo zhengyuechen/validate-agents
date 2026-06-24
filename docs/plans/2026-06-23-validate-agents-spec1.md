@@ -2336,7 +2336,7 @@ if __name__ == "__main__":
 
 **Interfaces:** Consumes `valagents.scheduler.run`. A scripted `FakeLLM` reproduces the spec §7 cycle end-to-end → `needs_experiment`, `load_bearing == "B"` (the α-non-saturation claim), with the fan-out second magnitude run present.
 
-- [ ] **Step 1: Write the integration test.**
+- [x] **Step 1: Write the integration test.**
 
 ```python
 from valagents.scheduler import run
@@ -2391,15 +2391,15 @@ async def test_escape_saddle_needs_experiment(cfg):
     assert art.validation_plan.cost == "low"
 ```
 
-- [ ] **Step 2: Run → FAIL** (until everything upstream is wired). `pytest tests/test_integration_escape_saddle.py -v`
+- [x] **Step 2: Run → FAIL** (until everything upstream is wired). `pytest tests/test_integration_escape_saddle.py -v`
 
-- [ ] **Step 3:** No new implementation — fix any wiring bug this surfaces in `scheduler.py`/agents. (If `load_bearing` ≠ `"B"`, check the `_evaluate` blocker precedence: the first `uncertain` root-ancestor in `claim_graph` order is surfaced; B must be the uncertain one. The router makes A and C `pass`, B `uncertain`, so the blocker claim is B.)
+- [x] **Step 3:** No new implementation — fix any wiring bug this surfaces in `scheduler.py`/agents. (If `load_bearing` ≠ `"B"`, check the `_evaluate` blocker precedence: the first `uncertain` root-ancestor in `claim_graph` order is surfaced; B must be the uncertain one. The router makes A and C `pass`, B `uncertain`, so the blocker claim is B.)
 
-- [ ] **Step 3b (references end-to-end):** Extend the scripted run so the Grounder returns a `SOURCES` token with an arXiv id (via a fake backend returning a canned `Article`), pass a `--references`-style provided id through a `FakeResolver`, and assert the artifact yields references, a grounded claim has `[n]` markers in the report, and a `.bib` is written.
+- [x] **Step 3b (references end-to-end):** Extend the scripted run so the Grounder returns a `SOURCES` token with an arXiv id (via a fake backend returning a canned `Article`), pass a `--references`-style provided id through a `FakeResolver`, and assert the artifact yields references, a grounded claim has `[n]` markers in the report, and a `.bib` is written.
 
-- [ ] **Step 4: Run → PASS.** Then the whole suite: `pytest -q` → all green.
+- [x] **Step 4: Run → PASS.** Then the whole suite: `pytest -q` → all green.
 
-- [ ] **Step 5: Commit.** `git add -A && git commit -m "test(integration): escape-saddle end-to-end → needs_experiment, load_bearing=B"`
+- [x] **Step 5: Commit.** `git add -A && git commit -m "test(integration): escape-saddle end-to-end → needs_experiment, load_bearing=B"`
 
 ---
 
