@@ -112,6 +112,7 @@ async def test_discriminating_pass_is_discounted_survived():
     assert sims and sims[0].status == "survived"            # discounted positive
     assert s.current.claim_graph[0].checks == []            # no CheckRecord injected
     assert "simulation" in s.current.attack_surface.attempted
+    assert "discriminating" in sims[0].basis   # proves the TWO-ARM discrimination path ran (not single-arm "robust:")
 
 async def test_behavior_without_mechanism_challenges():
     s = _store(role="novel_core", load_bearing=True)
