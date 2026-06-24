@@ -283,6 +283,24 @@ class IdeaArtifact(BaseModel):
 
     @computed_field
     @property
+    def verdict_class(self) -> str:
+        s = self.status
+        if s == "internally_validated":
+            return "validated"
+        if s == "refuted":
+            return "refuted"
+        if s == "draft":
+            return "draft"
+        # s == "needs_experiment": split by blocker reason
+        reason = (self.blocker or {}).get("reason")
+        if reason in ("not_falsifiable", "unfaithful_drift", "unfaithful_narrowed", "ill_formed", "unformalizable"):
+            return "ill_posed"
+        if reason in ("severe_objection", "open_objection"):
+            return "challenged"
+        return "promising"   # inconclusive, uncovered, decomposition_gap, thin_attack_surface, or None
+
+    @computed_field
+    @property
     def maturity(self) -> float:
         # Display/ranking scalar (spec 2.3). Reads the verdict set directly --
         # claim_graph, attacks, attack_surface, predictions, validation_plan, coverage --

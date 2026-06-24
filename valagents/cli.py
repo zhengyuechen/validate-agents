@@ -23,6 +23,23 @@ LIMIT = (
     "every lens shares the base model's blind spots."
 )
 
+_VERDICT_GLOSS = {
+    "validated": "survived all internal checks — not yet peer-reviewed or experimentally confirmed",
+    "refuted": "a load-bearing claim was falsified",
+    "draft": "gate not yet reached; more checks needed",
+    "ill_posed": "the idea cannot be settled by experiment in its current form — reframe first",
+    "challenged": "a serious objection stands; idea needs repair before testing",
+    "promising": "promising — a decisive check would settle it",
+}
+
+_ILL_POSED_REASON_GLOSS = {
+    "not_falsifiable": "the claim is not falsifiable as stated",
+    "unformalizable": "the idea could not be pinned to a precise claim",
+    "unfaithful_drift": "the formalization drifted from the seed",
+    "unfaithful_narrowed": "the formalization drifted from the seed",
+    "ill_formed": "the decomposition was degenerate",
+}
+
 
 def _slug(seed: str) -> str:
     slug = "".join(ch if ch.isalnum() else "-" for ch in seed.lower())
@@ -41,8 +58,12 @@ def _reference_line(ref) -> str:
 def render_report(art, refs=None) -> str:
     refs = refs or []
     blocker = art.blocker or {}
+    vc = art.verdict_class
+    gloss = _VERDICT_GLOSS.get(vc, vc)
     lines = [
         "# Validation Report",
+        "",
+        f"**Verdict:** {vc} — {gloss}",
         "",
         f"**Seed:** {art.raw_idea}",
         "",
@@ -52,6 +73,13 @@ def render_report(art, refs=None) -> str:
         f"**Maturity:** {art.maturity:.2f}",
         "",
     ]
+    if vc == "ill_posed":
+        reason = blocker.get("reason", "")
+        reason_gloss = _ILL_POSED_REASON_GLOSS.get(reason, reason)
+        lines += [
+            f"_This is not yet a testable claim ({reason_gloss}) — it needs reframing, not an experiment._",
+            "",
+        ]
     if art.formal_claim:
         lines += [
             f"**Formal claim:** {art.formal_claim.statement}",
