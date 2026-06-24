@@ -137,11 +137,11 @@ class AtomicClaim(BaseModel):
     origin: str = "decomposed"  # display-only; not read by _evaluate
 
     def _math_uncertainty_is_nonblocking(self, check: CheckRecord) -> bool:
-        """A math-claim uncertainty (thin-literature grounder OR reasoned-gap prover) is
-        non-blocking when a proof pass exists (prover or executor) and the basis is not a
-        contradiction — so an executed equality (or a prover pass) dominates a
-        reasoned/literature uncertainty; contradictions still block."""
-        if self.type != "mathematical" or check.lens not in ("grounder", "prover"):
+        """A math-claim uncertainty from a grounder (thin-literature), prover (reasoned-gap),
+        or executor (could-not-compute) is non-blocking when a proof pass exists (prover or
+        executor) and the basis is not a contradiction — so an executed equality (or a prover
+        pass) dominates a reasoned/literature/compute uncertainty; contradictions still block."""
+        if self.type != "mathematical" or check.lens not in ("grounder", "prover", "executor"):
             return False
         basis = (check.basis or "").strip().upper()
         return not basis.startswith(("CONTRADICTION:", "COUNTEREXAMPLE:", "REFUTES:"))

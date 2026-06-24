@@ -84,6 +84,15 @@ async def test_prover_explicit_contradiction_fails(cfg):
     assert rec.verdict == "fail"
 
 
+@pytest.mark.asyncio
+async def test_prover_refutes_prefix_fails(cfg):
+    """Fix 2: GAPS starting with REFUTES: must escalate to verdict='fail', same as CONTRADICTION."""
+    body = "DERIVATION: gapped | GAPS: REFUTES: prior result contradicts this | FATAL_GAP: yes"
+    rec = await prove_claim(AtomicClaim(id="d1", statement="x", type="mathematical"),
+                            FC, FakeLLM(lambda a, m: body), cfg)
+    assert rec.verdict == "fail"
+
+
 # ---------------------------------------------------------------------------
 # Task 10 addendum — metadata capture for citations
 # ---------------------------------------------------------------------------

@@ -32,3 +32,13 @@ def test_contradiction_uncertain_still_blocks_even_with_executor_pass():
     p = CheckRecord(lens="prover", verdict="uncertain", basis="CONTRADICTION: violates bound")
     e = CheckRecord(lens="executor", verdict="pass", independent_sources=1)
     assert _claim([p, e]).status == "uncertain"  # a contradiction blocks regardless
+
+def test_counterexample_uncertain_still_blocks_even_with_executor_pass():
+    p = CheckRecord(lens="prover", verdict="uncertain", basis="COUNTEREXAMPLE: witness disproves claim")
+    e = CheckRecord(lens="executor", verdict="pass", independent_sources=1)
+    assert _claim([p, e]).status == "uncertain"  # COUNTEREXAMPLE: contradiction blocks regardless
+
+def test_refutes_uncertain_still_blocks_even_with_executor_pass():
+    p = CheckRecord(lens="prover", verdict="uncertain", basis="REFUTES: prior result contradicts this")
+    e = CheckRecord(lens="executor", verdict="pass", independent_sources=1)
+    assert _claim([p, e]).status == "uncertain"  # REFUTES: contradiction blocks regardless

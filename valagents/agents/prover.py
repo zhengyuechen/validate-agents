@@ -42,7 +42,7 @@ async def prove_claim(
         return CheckRecord(lens="prover", verdict="uncertain", basis=tail["gaps"], tick=tick)
 
     gap_basis = tail["gaps"]
-    refutes = gap_basis.strip().upper().startswith(("CONTRADICTION:", "COUNTEREXAMPLE:"))
+    refutes = gap_basis.strip().upper().startswith(("CONTRADICTION:", "COUNTEREXAMPLE:", "REFUTES:"))
     fatal = fatal_gap == "yes"
     gapped = derivation == "gapped"
     verdict = "fail" if refutes else ("uncertain" if fatal or gapped else "pass")
