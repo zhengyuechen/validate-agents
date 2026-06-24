@@ -437,3 +437,34 @@ The system surfaces the literature its verdict rests on as a citable bibliograph
 **Schema touch** — `Source` (already in `artifact.py`) gains optional `title`/`url`/`year` so retrieved evidence is captured as citable at grounding time. Backward-compatible (defaults `None`); the gate and independence-counting logic are untouched.
 
 **Plan impact** — modify Task 10 (Grounder captures `Article` metadata), add a new task for `references.py` (model + injectable resolver + arXiv/DOI resolvers + merge/dedup/BibTeX/citation-map, `FakeResolver` tests), modify the CLI task (`--references` flag, `.bib` emit, inline `[n]` + References section), extend the integration test (assert a `.bib` is emitted and a grounded claim is cited).
+
+---
+
+## 11. Rev 4 — balance, legible verdict, gated theory-connection, professional rigor (2026-06-23)
+
+Five upgrades toward a professional theory-validation instrument, after a research-methodology critique of the completion/connect-to-theory layer. **The gate stays a pure function of grounder/prover/redteam verdicts.** R3 adds *checked claims* — it does NOT add a narrative→gate path; the five "convince" agents remain narrative-only.
+
+**R1 — Balanced demonstration (the output must steelman both sides).** A one-sided affirmative brief *lowers* credibility with skeptical experts. Add `steelman_objection` (`SteelmanObjection`: the strongest case *against*, written as forcefully as `convincing_case` — narrative, un-gated). **Invert the report:** lead with `verdict_class` + load-bearing claim + the strongest standing objection + the decisive test; *then* the balanced case (for **and** against); *then* the supporting sections. Abstract-and-catch first.
+
+**R2 — Legible verdict (`verdict_class`).** A new COMPUTED field — pure function of `status` + `blocker.reason` (no LLM, never written): `validated | refuted | challenged | ill_posed | promising | draft`.
+- `validated` ← `internally_validated`; `refuted` ← `refuted`.
+- `ill_posed` ← `needs_experiment` & reason ∈ {`not_falsifiable`, `unfaithful_drift`, `unfaithful_narrowed`, `ill_formed`, `unformalizable`}.
+- `challenged` ← `needs_experiment` & reason ∈ {`severe_objection`, `open_objection`}.
+- `promising` ← `needs_experiment` & reason ∈ {`inconclusive`, `uncovered`, `decomposition_gap`, `thin_attack_surface`}.
+The report headline shows `verdict_class`. **`ill_posed` renders as "not a testable claim — reframe," NEVER as "needs experiment"** (the honesty bug the charity reframe introduced: you cannot experimentally settle an un-falsifiable claim).
+
+**R3 — Theory-connection becomes checked claims (principled teeth).** The limiting-case reductions / known limits the idea must recover (from `theory_bridge.recovers_known_limits` / `known_limits`) are promoted to `mathematical`, `load_bearing` `AtomicClaim`s — "in regime R, the idea reduces to/recovers known result Y" — appended to `claim_graph` and **checked by the Prover like any other claim** (cap ≤ 3 injected claims). Consequences, all via the existing gate:
+- complete reduction → `pass` (the most convincing move in theory — now *checked*, not asserted);
+- gapped reduction → `uncertain` → `needs_experiment`;
+- the idea **violates** a known limit (conservation, a proven bound) → Prover/Red-team records a contradiction → claim `fail` → **`refuted`**.
+This gives the charitable gate back the ability to *kill* an idea — but only on the most defensible ground (violating established theory), answering the "needs teeth" critique. Timing: after the narrative `theory_bridge`/`known_limits` run, a Prover check-pass runs over the injected claims; the gate includes them automatically (no gate change).
+
+**R4 — Professional rigor fields.**
+- **Assumptions ledger** — `IdeaCompletion.assumptions` becomes structured per-item `{text, status: standard|contested|novel_load_bearing}`; *novel + load-bearing* is flagged as where the idea most likely dies.
+- **Detectability** — `Prediction` gains `detectable: yes|no|unclear` (predicted effect vs current sensitivity/known bounds — the "numerically inert" guard; *executed* in Spec 2).
+- **Discriminates from the best alternative** — the Validation-designer's `decisive_test` must discriminate from `prior_art_positioning.closest_prior`, not merely the null; record `discriminates_from` on the plan.
+- **Inferential standard** — `ValidationPlan` gains `inferential_standard` (power / N / pre-registration) for empirical claims.
+
+**R5 — Credibility + cost.**
+- A worked example **and** an integration test where a vacuous / un-falsifiable / limit-violating seed yields a *loud negative* artifact (`verdict_class ∈ {ill_posed, refuted, challenged}`) — a validator is only credible if it visibly kills bad ideas, not just matures good ones.
+- The five narrative agents (`completer`, `theory_bridge`, `positioning`, `known_limits`, `convincing_case`, `steelman_objection`) run on a cheaper model via `config.py`; the strong model is reserved for the gating lenses (grounder / prover / redteam) where correctness decides the verdict.
