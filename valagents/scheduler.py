@@ -274,8 +274,10 @@ async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
             bn += 1
             claim_id = f"BND{bn}"
             existing = {c.id for c in art.claim_graph}
+            suffix = 0
             while claim_id in existing:
-                claim_id = f"BND{bn}_{len(existing)}"
+                suffix += 1
+                claim_id = f"BND{bn}_{suffix}"
             claim = AtomicClaim(
                 id=claim_id, type="mathematical", load_bearing=True, origin="bound_check",
                 statement=(f"The idea's predicted effect respects the established bound "

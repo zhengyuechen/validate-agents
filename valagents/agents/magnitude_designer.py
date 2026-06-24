@@ -3,7 +3,7 @@ routed to the comparison kind the LLM chose. It DESIGNS the check only — retur
 sees the execution result (F1/F3)."""
 from __future__ import annotations
 from valagents.computation import ComputationPlan
-from valagents.parse import checked_body, parse_tail, StrictTailError
+from valagents.parse import checked, checked_body, parse_tail, StrictTailError
 from valagents.prompts import MAGNITUDE_DESIGNER
 from valagents.agents.base import build_messages
 
@@ -25,8 +25,9 @@ async def design_magnitude(prediction, art, llm, cfg) -> ComputationPlan | None:
         formal=art.formal_claim.statement if art.formal_claim else "",
         observable=prediction.observable, effect_size=prediction.effect_size,
         discriminates_from=prediction.discriminates_from or "(none)")
+    messages = build_messages("You design detectability checks.", user)
     head, body = await checked_body(
-        "magnitude_designer", build_messages("You design detectability checks.", user),
+        "magnitude_designer", messages,
         _COMMON, llm=llm)
     if head is None:
         return None
@@ -34,10 +35,13 @@ async def design_magnitude(prediction, art, llm, cfg) -> ComputationPlan | None:
     extra = _KIND_KEYS.get(ck)
     if extra is None:
         return None
+    full = _COMMON + extra
     try:
-        t = parse_tail(body, _COMMON + extra)        # same body, full key set for this kind
+        t = parse_tail(body, full)                   # same body, full key set for this kind
     except StrictTailError:
-        return None                                  # missing a kind-specific quantity/source -> no plan (fallback)
+        t = await checked("magnitude_designer", messages, full, llm=llm)   # reask with the full kind tail
+        if t is None:
+            return None
     common = dict(kind="magnitude", confirm_if=t["confirm_if"], refute_if=t["refute_if"],
                   target_claim_id=art.load_bearing, discriminating=bool(prediction.discriminates_from),
                   criterion="magnitude")

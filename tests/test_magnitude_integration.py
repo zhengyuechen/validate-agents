@@ -67,6 +67,7 @@ BOUND_OK = ("COMPARISON_KIND: bound_check | PREDICTED_EFFECT: 1e-3 | BOUND: 1e-2
             "| BOUND_SOURCE: PDG2024 | CONFIRM_IF: p<=bound | REFUTE_IF: p>bound")
 BOUND_VIOLATE = BOUND_OK.replace("PREDICTED_EFFECT: 1e-3", "PREDICTED_EFFECT: 1e-1")
 BOUND_NO_SOURCE = BOUND_OK.replace("| BOUND_SOURCE: PDG2024 ", "| BOUND_SOURCE:  ")
+assert BOUND_NO_SOURCE != BOUND_OK      # guard: the replace must actually empty the source
 
 async def test_bound_violation_injects_failed_claim_and_refutes():
     s = store_with_prediction(discriminates=True)
@@ -102,6 +103,7 @@ async def test_bound_idempotent_across_reruns():                   # L2-D11
 
 
 INERT_NO_SOURCE = INERT.replace("| SENSITIVITY_SOURCE: arXiv:1234 ", "| SENSITIVITY_SOURCE:  ")
+assert INERT_NO_SOURCE != INERT
 
 async def test_sensitivity_missing_source_no_plan_no_attack():   # fail-closed at designer (spill guard)
     art = store_with_prediction().current
@@ -110,3 +112,26 @@ async def test_sensitivity_missing_source_no_plan_no_attack():   # fail-closed a
     await run_magnitude_checks(s, router(INERT_NO_SOURCE), cfg())
     assert not [a for a in s.current.attacks if a.type == "magnitude"]
     assert "magnitude" not in s.current.attack_surface.attempted
+
+
+_COMMON_ONLY = ("COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: 1e-18 "
+                "| CONFIRM_IF: ratio>=3 | REFUTE_IF: ratio<3")
+
+def reasking_router(good_tail):
+    """First call returns only _COMMON keys (no kind-specific tail); any reask for the full key set
+    (which includes SENSITIVITY) returns good_tail so checked() can recover."""
+    def fn(agent, messages):
+        if agent != "magnitude_designer":
+            return ""
+        # If the reask mentions SENSITIVITY (a kind-specific key), deliver the full tail.
+        asked_full = any("SENSITIVITY" in m.get("content", "") for m in messages
+                         if m.get("role") == "user")
+        return good_tail if asked_full else _COMMON_ONLY
+    return FakeLLM(fn)
+
+async def test_designer_recovers_plan_on_reask():
+    # Before Fix 1: parse_tail(body, full) raises StrictTailError and the old code returned None.
+    # After Fix 1: checked() is called with the full key set, reasked successfully, returns a plan.
+    art = store_with_prediction().current
+    p = await design_magnitude(art.predictions[0], art, reasking_router(INERT), cfg())
+    assert p is not None and p.comparison_kind == "sensitivity_ratio"
