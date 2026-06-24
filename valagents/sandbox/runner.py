@@ -413,6 +413,8 @@ def _run_simulation(plan: dict) -> dict:
         if primitive == "linear_stability":
             if plan.get("init_sweep"):
                 return _u("linear_stability: init_sweep not allowed (param_sweep only)")
+            if plan.get("null_overrides"):
+                return _u("linear_stability: null_overrides not supported (single-arm only)")
             min_axis = int(ceil.get("min_points_per_axis", 0))
             for name, spec in plan["param_sweep"].items():
                 if int(float(spec[2])) < min_axis:

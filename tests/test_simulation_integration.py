@@ -189,6 +189,7 @@ async def test_ls_stable_is_discounted_survived():
     assert sims and sims[0].status == "survived"
     assert s.current.claim_graph[0].checks == []                  # discounted: no CheckRecord
     assert "linear_stability" in sims[0].basis                    # the basis branch (not observable=?(?))
+    assert "simulation" in s.current.attack_surface.attempted
 
 async def test_ls_unstable_challenges():
     s = _store(role="novel_core", load_bearing=True)
@@ -196,3 +197,19 @@ async def test_ls_unstable_challenges():
     sims = [a for a in s.current.attacks if a.type == "simulation"]
     assert sims and sims[0].status == "landed" and sims[0].severity == "fatal"
     assert s.current.verdict_class == "challenged"
+
+async def test_ls_null_overrides_rejected_no_attack():
+    bad = {**LS_PLAN, "null_overrides": {"a": "0"}}
+    body = "```json\n" + json.dumps(bad) + "\n```"
+    s = _store()
+    await run_simulation_checks(s, router(body), cfg())
+    assert not [a for a in s.current.attacks if a.type == "simulation"]   # uncertain -> no attack
+
+async def test_ls_numeric_fixed_point_coerced():
+    num = {**LS_PLAN, "fixed_point": {"x": 0}}   # integer coordinate -> must be coerced to "0"
+    body = "```json\n" + json.dumps(num) + "\n```"
+    s = _store()
+    p = await design_simulation(s.current.claim_graph[0], s.current, router(body), cfg())
+    assert p is not None and p.fixed_point == {"x": "0"}
+    await run_simulation_checks(s, router(body), cfg())
+    assert [a for a in s.current.attacks if a.type == "simulation"]   # ran end-to-end (not dropped to None)
