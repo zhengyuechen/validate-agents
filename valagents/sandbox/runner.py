@@ -41,6 +41,8 @@ _MAG_REQUIRED = {
     "sensitivity_ratio": ["predicted_effect", "baseline_or_null", "sensitivity",
                           "sensitivity_source", "threshold"],
     "bound_check": ["predicted_effect", "bound", "bound_source"],
+    "discriminating_margin": ["predicted_effect", "closest_prior_effect",
+                              "closest_prior_source", "uncertainty", "threshold"],
 }
 
 def _parse_number(s, glob) -> float:
@@ -79,6 +81,17 @@ def _run_magnitude(plan: dict) -> dict:
             compliant = predicted <= bound
             return {"ok": True, "computed": f"predicted={predicted:.6g}, bound={bound:.6g}",
                     "matched": "confirm" if compliant else "refute"}
+        if ck == "discriminating_margin":
+            predicted = _parse_number(plan["predicted_effect"], glob)
+            closest = _parse_number(plan["closest_prior_effect"], glob)
+            uncertainty = _parse_number(plan["uncertainty"], glob)
+            threshold = _parse_number(plan["threshold"], glob)
+            if uncertainty == 0:
+                return {"ok": False, "matched": "neither", "error": "uncertainty is zero"}
+            margin = float(np.abs(predicted - closest) / uncertainty)
+            distinguishable = margin >= threshold
+            return {"ok": True, "computed": f"margin={margin:.6g}",
+                    "matched": "confirm" if distinguishable else "refute"}
     except Exception as e:
         return {"ok": False, "matched": "neither", "error": f"{type(e).__name__}: {e}"}
     return {"ok": False, "matched": "neither", "error": "no computation performed"}

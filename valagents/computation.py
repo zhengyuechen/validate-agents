@@ -22,6 +22,7 @@ class ComputationPlan(BaseModel):
     bound: str = ""
     bound_source: str = ""
     closest_prior_effect: str = ""
+    closest_prior_source: str = ""   # mandatory for discriminating_margin (L2-D10) — sourced alternative
     uncertainty: str = ""
     threshold: str = ""
     target_claim_id: str | None = None
@@ -75,8 +76,14 @@ def verdict_to_attack(v: "ComputationVerdict", target_claim_id, discriminating: 
         status, severity = "survived", "minor"
     else:  # "refute" — inert / non-discriminating
         status, severity = "landed", ("fatal" if discriminating else "major")
-    basis = (f"{v.plan.comparison_kind}: computed = {v.measured or '?'}; "
-             f"sensitivity = {v.plan.sensitivity or 'n/a'} "
-             f"(source: {v.plan.sensitivity_source or 'n/a'}); threshold = {v.plan.threshold or 'n/a'}")
+    if v.plan.comparison_kind == "discriminating_margin":
+        basis = (f"discriminating_margin: computed = {v.measured or '?'}; "
+                 f"closest_prior = {v.plan.closest_prior_effect or 'n/a'} "
+                 f"(source: {v.plan.closest_prior_source or 'n/a'}); "
+                 f"uncertainty = {v.plan.uncertainty or 'n/a'}; threshold = {v.plan.threshold or 'n/a'}")
+    else:
+        basis = (f"{v.plan.comparison_kind}: computed = {v.measured or '?'}; "
+                 f"sensitivity = {v.plan.sensitivity or 'n/a'} "
+                 f"(source: {v.plan.sensitivity_source or 'n/a'}); threshold = {v.plan.threshold or 'n/a'}")
     return Attack(type="magnitude", severity=severity, status=status,
                   target_claim_id=target_claim_id, basis=basis)

@@ -63,3 +63,20 @@ def test_verdict_to_check_symbolic_unchanged():
     v = ComputationVerdict(verdict="pass", measured="0", plan=p, result=r)
     rec = verdict_to_check(v)
     assert "expected = 0" in rec.basis and rec.sources and rec.sources[0].locator == "textbook"
+
+
+def test_closest_prior_source_field_exists():
+    p = ComputationPlan(kind="magnitude", comparison_kind="discriminating_margin",
+                        closest_prior_source="arXiv:5678")
+    assert p.closest_prior_source == "arXiv:5678"
+
+def test_discriminating_margin_basis_is_loud_sourced():
+    p = ComputationPlan(kind="magnitude", comparison_kind="discriminating_margin",
+                        predicted_effect="5e-9", closest_prior_effect="1e-9",
+                        closest_prior_source="arXiv:5678", uncertainty="1e-9", threshold="3",
+                        discriminating=True)
+    r = ComputationResult(ok=True, computed="margin=4", matched="refute")
+    v = ComputationVerdict(verdict="fail", measured="margin=4", plan=p, result=r)
+    a = verdict_to_attack(v, target_claim_id="c1", discriminating=True)
+    assert a.status == "landed" and a.severity == "fatal"
+    assert "closest_prior" in a.basis and "arXiv:5678" in a.basis and "margin=4" in a.basis

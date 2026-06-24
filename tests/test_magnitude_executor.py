@@ -66,3 +66,31 @@ def test_bound_missing_bound_is_uncertain():
 def test_bound_dunder_is_uncertain_not_executed():
     v = run_plan(bplan(predicted_effect="x.__class__"), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+
+def dplan(**kw):
+    base = dict(kind="magnitude", comparison_kind="discriminating_margin",
+                predicted_effect="5e-9", closest_prior_effect="1e-9",
+                closest_prior_source="arXiv:5678", uncertainty="1e-9", threshold="3")
+    base.update(kw)
+    return ComputationPlan(**base)
+
+def test_discriminating_clears_is_confirm():
+    v = run_plan(dplan(), cfg())                 # |5e-9-1e-9|/1e-9 = 4 >= 3 -> distinguishable
+    assert v.verdict == "pass" and v.result.matched == "confirm"
+
+def test_indistinguishable_is_refute():
+    v = run_plan(dplan(predicted_effect="2e-9"), cfg())   # |2e-9-1e-9|/1e-9 = 1 < 3
+    assert v.verdict == "fail" and v.result.matched == "refute"
+
+def test_discriminating_missing_source_is_uncertain():    # L2-D10 anti-laundering of the alternative
+    v = run_plan(dplan(closest_prior_source=""), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_discriminating_zero_uncertainty_is_uncertain():
+    v = run_plan(dplan(uncertainty="0"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_discriminating_dunder_is_uncertain_not_executed():
+    v = run_plan(dplan(closest_prior_effect="x.__class__"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
