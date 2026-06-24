@@ -22,7 +22,7 @@ async def run_entry_gates(store: ArtifactStore, raw_idea: str, backend, llm, cfg
     fc = await formalize(raw_idea, llm, cfg)
     if fc is None:
         art.finalized = True
-        store.record({"event": "entry_fail", "stage": "formalizer"})
+        store.record({"event": "entry_gate", "reason": "unformalizable", "stage": "formalizer"})
         return False
     store.set("formal_claim", fc)
     if not fc.falsifiable:
@@ -43,7 +43,8 @@ async def run_entry_gates(store: ArtifactStore, raw_idea: str, backend, llm, cfg
     store.set("faithfulness", f)
     if f.verdict in ("narrowed", "no"):
         art.finalized = True
-        store.record({"event": "entry_gate", "reason": f"unfaithful_{f.verdict}"})
+        reason = "unfaithful_drift" if f.verdict == "no" else "unfaithful_narrowed"
+        store.record({"event": "entry_gate", "reason": reason})
         return False
 
     # 3. Decomposer, with one retry on empty

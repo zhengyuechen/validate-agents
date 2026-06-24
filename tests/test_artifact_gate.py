@@ -89,6 +89,15 @@ def test_draft_when_unfinalized_pending():
     a.claim_graph[0].exhausted = False
     assert a.status == "draft"
 
+# --- unformalizable (I3 totality hole fix) ---
+def test_unformalizable_when_finalized_without_formal_claim():
+    a = IdeaArtifact(raw_idea="s", finalized=True)
+    assert a.status == "refuted" and a.blocker["reason"] == "unformalizable"
+
+def test_draft_when_not_finalized_without_formal_claim():
+    a = IdeaArtifact(raw_idea="s")
+    assert a.status == "draft"
+
 # --- order independence (pre-validates Spec 4) ---
 def test_order_independence():
     c = claim("c1", checks=[CheckRecord(lens="grounder", verdict="pass", independent_sources=1),

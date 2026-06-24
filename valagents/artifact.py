@@ -147,6 +147,8 @@ class IdeaArtifact(BaseModel):
     def _evaluate(self) -> tuple[str, dict | None]:
         rs = self.root_ancestors()
         # ===== ENTRY GATES =====
+        if self.formal_claim is None and self.finalized:
+            return REFUTED, self._b("unformalizable")
         if self.formal_claim and not self.formal_claim.falsifiable:
             return REFUTED, self._b("not_falsifiable")
         if self.faithfulness and self.faithfulness.retried and self.faithfulness.verdict == "no":

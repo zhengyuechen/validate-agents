@@ -48,6 +48,16 @@ async def test_empty_decomposition_ill_formed(cfg):
 
 
 @pytest.mark.asyncio
+async def test_unformalizable_terminates(cfg):
+    s = store()
+    llm = FakeLLM(router({"formalizer": "I cannot parse this into a formal claim."}))
+    proceed = await run_entry_gates(s, "seed", None, llm, cfg)
+    assert proceed is False
+    assert s.current.status == "refuted"
+    assert s.current.blocker["reason"] == "unformalizable"
+
+
+@pytest.mark.asyncio
 async def test_clean_entry_proceeds(cfg):
     s = store()
     llm = FakeLLM(router({
