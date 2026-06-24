@@ -63,6 +63,13 @@ def test_determinism():
     b = run_plan(splan(), cfg())
     assert a.measured == b.measured and a.verdict == b.verdict
 
+def test_missing_ceilings_fail_closed():
+    # the two-layer cap guarantee must not silently depend on run_plan injecting ceilings
+    from valagents.sandbox import runner
+    plan = splan().model_dump()        # a valid plan dict, but with NO "_sim_ceilings" key
+    out = runner._run_simulation(plan)
+    assert out["ok"] is False and "ceiling" in out["error"].lower()
+
 def test_reserved_name_shadowing_uncertain():
     # a state var named "E" would shadow Euler's number -> reject fail-closed, not silently mis-simulate
     v = run_plan(splan(state_vars=["E"], rhs={"E": "-a*E"}, init={"E": "1.0"},

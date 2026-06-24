@@ -261,6 +261,10 @@ def _run_simulation(plan: dict) -> dict:
         if not plan.get(f):
             return _u(f"missing required field: {f}")
     ceil = plan.get("_sim_ceilings", {})
+    _REQUIRED_CEILINGS = ("max_state_vars", "max_expr_nodes", "max_grid_points",
+                          "max_steps", "max_total_steps", "min_grid_points")
+    if not all(k in ceil for k in _REQUIRED_CEILINGS):
+        return _u("missing/incomplete sandbox ceilings (no run_plan injection)")
     # caps: positive, and not exceeding config ceilings
     for cap in _SIM_CAPS:
         v = int(plan.get(cap, 0))
