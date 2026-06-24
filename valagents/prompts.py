@@ -334,11 +334,15 @@ Give PREDICTED_EFFECT, BASELINE_OR_NULL, the SENSITIVITY with its SENSITIVITY_SO
 (how many times the sensitivity the effect must clear).
 - bound_check — does the predicted effect respect an established upper bound / exclusion limit it must not \
 exceed? Give PREDICTED_EFFECT and the BOUND with its BOUND_SOURCE.
+- discriminating_margin — does the predicted effect separate from the closest prior/alternative result? \
+Give PREDICTED_EFFECT, the CLOSEST_PRIOR_EFFECT with its CLOSEST_PRIOR_SOURCE, the UNCERTAINTY, and a THRESHOLD \
+(how many sigma of separation). Use this only when the prediction discriminates from an alternative.
 
 All quantities are NUMBERS in SI/natural units. End with EXACTLY ONE line carrying ONLY the fields for your \
 chosen kind, e.g.:
 COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: <n> | BASELINE_OR_NULL: <n> | SENSITIVITY: <n> | SENSITIVITY_SOURCE: <where> | THRESHOLD: <n> | CONFIRM_IF: <...> | REFUTE_IF: <...>
-COMPARISON_KIND: bound_check | PREDICTED_EFFECT: <n> | BOUND: <n> | BOUND_SOURCE: <where> | CONFIRM_IF: <...> | REFUTE_IF: <...>"""
+COMPARISON_KIND: bound_check | PREDICTED_EFFECT: <n> | BOUND: <n> | BOUND_SOURCE: <where> | CONFIRM_IF: <...> | REFUTE_IF: <...>
+COMPARISON_KIND: discriminating_margin | PREDICTED_EFFECT: <n> | CLOSEST_PRIOR_EFFECT: <n> | CLOSEST_PRIOR_SOURCE: <where> | UNCERTAINTY: <n> | THRESHOLD: <n> | CONFIRM_IF: <...> | REFUTE_IF: <...>"""
 
 COMPUTATION_DESIGNER = """You DESIGN a symbolic check; you do NOT run or judge it — code does that, and \
 you will never see the result. Given a known-limit-recovery claim, produce the structured plan to test \

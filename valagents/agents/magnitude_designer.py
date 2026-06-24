@@ -12,6 +12,7 @@ _COMMON = ["COMPARISON_KIND", "PREDICTED_EFFECT", "CONFIRM_IF", "REFUTE_IF"]
 _KIND_KEYS = {
     "sensitivity_ratio": ["BASELINE_OR_NULL", "SENSITIVITY", "SENSITIVITY_SOURCE", "THRESHOLD"],
     "bound_check": ["BOUND", "BOUND_SOURCE"],
+    "discriminating_margin": ["CLOSEST_PRIOR_EFFECT", "CLOSEST_PRIOR_SOURCE", "UNCERTAINTY", "THRESHOLD"],
 }
 
 def _valid_source(s: str) -> bool:
@@ -61,6 +62,14 @@ async def design_magnitude(prediction, art, llm, cfg) -> ComputationPlan | None:
             return ComputationPlan(comparison_kind="bound_check",
                 predicted_effect=t["predicted_effect"], bound=t["bound"], bound_source=bs,
                 **common)
+        if ck == "discriminating_margin":
+            cps = t["closest_prior_source"].strip()
+            if not _valid_source(cps):               # fail-closed: empty/spilled source -> no plan (L2-D10)
+                return None
+            return ComputationPlan(comparison_kind="discriminating_margin",
+                predicted_effect=t["predicted_effect"], closest_prior_effect=t["closest_prior_effect"],
+                closest_prior_source=cps, uncertainty=t["uncertainty"],
+                threshold=t["threshold"], **common)
     except Exception:
         return None
     return None

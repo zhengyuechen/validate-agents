@@ -135,3 +135,39 @@ async def test_designer_recovers_plan_on_reask():
     art = store_with_prediction().current
     p = await design_magnitude(art.predictions[0], art, reasking_router(INERT), cfg())
     assert p is not None and p.comparison_kind == "sensitivity_ratio"
+
+
+DM_CLEARS = ("COMPARISON_KIND: discriminating_margin | PREDICTED_EFFECT: 5e-9 "
+             "| CLOSEST_PRIOR_EFFECT: 1e-9 | CLOSEST_PRIOR_SOURCE: arXiv:5678 "
+             "| UNCERTAINTY: 1e-9 | THRESHOLD: 3 | CONFIRM_IF: margin>=3 | REFUTE_IF: margin<3")
+DM_INDISTINCT = DM_CLEARS.replace("PREDICTED_EFFECT: 5e-9", "PREDICTED_EFFECT: 2e-9")
+DM_NO_SOURCE = DM_CLEARS.replace("| CLOSEST_PRIOR_SOURCE: arXiv:5678 ", "| CLOSEST_PRIOR_SOURCE:  ")
+assert DM_NO_SOURCE != DM_CLEARS    # guard: the replace must actually empty the source
+
+
+async def test_dm_designer_emits_plan():
+    art = store_with_prediction().current
+    p = await design_magnitude(art.predictions[0], art, router(DM_CLEARS), cfg())
+    assert p is not None and p.comparison_kind == "discriminating_margin"
+    assert p.closest_prior_source == "arXiv:5678"
+
+async def test_dm_indistinct_lands_fatal_and_challenges():
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(DM_INDISTINCT), cfg())
+    mags = [a for a in s.current.attacks if a.type == "magnitude"]
+    assert mags and mags[0].status == "landed" and mags[0].severity == "fatal"
+    assert "magnitude" in s.current.attack_surface.attempted
+    assert s.current.verdict_class == "challenged"
+
+async def test_dm_clears_survives_and_marks_attempted():
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(DM_CLEARS), cfg())
+    mags = [a for a in s.current.attacks if a.type == "magnitude"]
+    assert mags and mags[0].status == "survived"
+    assert "magnitude" in s.current.attack_surface.attempted
+
+async def test_dm_missing_source_no_attack_not_marked():    # L2-D10 + L2-D9
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(DM_NO_SOURCE), cfg())
+    assert not [a for a in s.current.attacks if a.type == "magnitude"]
+    assert "magnitude" not in s.current.attack_surface.attempted
