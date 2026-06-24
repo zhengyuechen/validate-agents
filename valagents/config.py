@@ -13,12 +13,19 @@ class GateCfg(BaseModel):
     fanout_N: int = 2               # diverse-type lenses on a load-bearing uncertain node before finalize
     repair_cap: int = 3             # max repair versions before finalize
 
+class SandboxCfg(BaseModel):
+    enabled: bool = True
+    wall_s: int = 10
+    cpu_s: int = 10
+    mem_mb: int = 512
+
 class Config(BaseModel):
     default_model: str
     models: dict[str, str] = {}
     temperature: dict[str, float] = {}
     grounding: GroundCfg = GroundCfg()
     gate: GateCfg = GateCfg()
+    sandbox: SandboxCfg = SandboxCfg()
     results_dir: str = "results"
 
     def model_for(self, agent: str) -> str:

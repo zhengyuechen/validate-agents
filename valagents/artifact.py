@@ -14,7 +14,7 @@ class Source(BaseModel):
     year: str | None = None
 
 class CheckRecord(BaseModel):
-    lens: Literal["grounder", "prover", "redteam"]
+    lens: Literal["grounder", "prover", "redteam", "executor"]
     verdict: Literal["pass", "fail", "uncertain"]
     basis: str = ""
     sources: list[Source] = []
@@ -150,7 +150,7 @@ class AtomicClaim(BaseModel):
         uncertainties = [c for c in self.checks if c.verdict == "uncertain"]
         passes = [c for c in self.checks if c.verdict == "pass" and c.independent_sources >= 1]
         if uncertainties:
-            has_proof_pass = any(c.lens == "prover" for c in passes)
+            has_proof_pass = any(c.lens in ("prover", "executor") for c in passes)
             if (
                 self.type == "mathematical"
                 and has_proof_pass
