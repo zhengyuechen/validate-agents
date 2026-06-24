@@ -55,12 +55,9 @@ def _reference_line(ref) -> str:
     return f"[{ref.number}] {title} - {authors} ({year}). {url}  .{ref.origin} .{ref.relation}"
 
 
-def render_report(art, refs=None) -> str:
-    refs = refs or []
-    blocker = art.blocker or {}
-    vc = art.verdict_class
-    gloss = _VERDICT_GLOSS.get(vc, vc)
-    lines = [
+def _render_verdict_block(lines: list, art, blocker: dict, vc: str, gloss: str) -> None:
+    """Block 1: headline verdict + metadata."""
+    lines += [
         "# Validation Report",
         "",
         f"**Verdict:** {vc} — {gloss}",
@@ -69,7 +66,7 @@ def render_report(art, refs=None) -> str:
         "",
         f"**Status:** `{art.status}`",
         f"**Load-bearing claim:** `{art.load_bearing}`",
-        f"**Blocker:** {blocker.get('reason', '-') } ({blocker.get('claim_id') or '-'})",
+        f"**Blocker:** {blocker.get('reason', '-')} ({blocker.get('claim_id') or '-'})",
         f"**Maturity:** {art.maturity:.2f}",
         "",
     ]
@@ -86,6 +83,66 @@ def render_report(art, refs=None) -> str:
             f"_falsifiable: {art.formal_claim.falsifiable}_",
             "",
         ]
+
+
+def _render_crux_block(lines: list, art) -> None:
+    """Block 2: the crux — strongest objection + decisive test, foregrounded."""
+    lines.append("## The Crux")
+    lines.append("")
+    if art.steelman_objection:
+        obj = art.steelman_objection
+        lines += [
+            "### Strongest objection",
+            f"{obj.strongest_objection}",
+            f"**What would kill it:** {obj.what_would_kill_it}",
+        ]
+        if obj.threatening_result:
+            lines.append(f"**Threatening result:** {obj.threatening_result}")
+        lines.append("")
+    else:
+        lines += ["### Strongest objection", "_No steelman objection produced._", ""]
+    if art.validation_plan:
+        plan = art.validation_plan
+        lines += [
+            "### Decisive test",
+            f"- {plan.decisive_test}",
+            f"- confirm if: {plan.confirm_if}",
+            f"- refute if: {plan.refute_if}",
+            f"- discriminates from: {plan.discriminates_from or 'n/a'}",
+            f"- inferential standard: {plan.inferential_standard or 'n/a'}",
+            f"- cost: {plan.cost}",
+            "",
+        ]
+
+
+def _render_balanced_case(lines: list, art) -> None:
+    """Block 3: case for and case against, adjacent and equal weight."""
+    if art.convincing_case:
+        case = art.convincing_case
+        lines += [
+            "### Case for",
+            f"**Short version:** {case.elevator_version}",
+            f"**Technical version:** {case.technical_version}",
+            f"**Why existing theory leaves room:** {case.why_existing_theory_leaves_room}",
+            f"**Why plausible:** {case.why_plausible}",
+            f"**Skeptic tests:** {', '.join(case.skeptic_tests) or 'none'}",
+            "",
+        ]
+    if art.steelman_objection:
+        obj = art.steelman_objection
+        lines += [
+            "### Case against",
+            f"**Strongest objection:** {obj.strongest_objection}",
+            f"**Mechanism of failure:** {obj.mechanism_of_failure}",
+            f"**Threatening result:** {obj.threatening_result}",
+            f"**What would kill it:** {obj.what_would_kill_it}",
+            f"**Fair summary:** {obj.fair_summary}",
+            "",
+        ]
+
+
+def _render_claims_block(lines: list, art, refs: list) -> None:
+    """Block 4: claim graph + limit-recovery checks."""
     if art.claim_graph:
         lines.append("## Claim Graph")
         for claim in art.claim_graph:
@@ -96,6 +153,16 @@ def render_report(art, refs=None) -> str:
                 f"{marker_text} - {claim.statement}"
             )
         lines.append("")
+    limit_claims = [c for c in art.claim_graph if c.origin == "limit_recovery"]
+    if limit_claims:
+        lines.append("## Limit-recovery checks")
+        for c in limit_claims:
+            lines.append(f"- `{c.id}` **{c.status}** — {c.statement}")
+        lines.append("")
+
+
+def _render_supporting_layer(lines: list, art) -> None:
+    """Block 5: completion, theory bridge, positioning, known limits, predictions."""
     if art.completion:
         lines += [
             "## Completed Candidate",
@@ -147,34 +214,6 @@ def render_report(art, refs=None) -> str:
                 f"failure if not: {item.failure_if_not}; repair: {item.repair_needed}"
             )
         lines.append("")
-    limit_claims = [c for c in art.claim_graph if c.origin == "limit_recovery"]
-    if limit_claims:
-        lines.append("## Limit-recovery checks")
-        for c in limit_claims:
-            lines.append(f"- `{c.id}` **{c.status}** — {c.statement}")
-        lines.append("")
-    if art.convincing_case:
-        case = art.convincing_case
-        lines += [
-            "## Convincing Case",
-            f"**Short version:** {case.elevator_version}",
-            f"**Technical version:** {case.technical_version}",
-            f"**Why existing theory leaves room:** {case.why_existing_theory_leaves_room}",
-            f"**Why plausible:** {case.why_plausible}",
-            f"**Skeptic tests:** {', '.join(case.skeptic_tests) or 'none'}",
-            "",
-        ]
-    if art.steelman_objection:
-        obj = art.steelman_objection
-        lines += [
-            "## Steelman Objection (the case against)",
-            f"**Strongest objection:** {obj.strongest_objection}",
-            f"**Mechanism of failure:** {obj.mechanism_of_failure}",
-            f"**Threatening result:** {obj.threatening_result}",
-            f"**What would kill it:** {obj.what_would_kill_it}",
-            f"**Fair summary:** {obj.fair_summary}",
-            "",
-        ]
     if art.predictions:
         lines.append("## Predictions")
         for pred in art.predictions:
@@ -184,23 +223,38 @@ def render_report(art, refs=None) -> str:
                 f"measurable: {pred.measurable}; detectable: {pred.detectable})"
             )
         lines.append("")
-    if art.validation_plan:
-        plan = art.validation_plan
-        lines += [
-            "## Decisive Test",
-            f"- {plan.decisive_test}",
-            f"- confirm if: {plan.confirm_if}",
-            f"- refute if: {plan.refute_if}",
-            f"- discriminates from: {plan.discriminates_from or 'n/a'}",
-            f"- inferential standard: {plan.inferential_standard or 'n/a'}",
-            f"- cost: {plan.cost}",
-            "",
-        ]
+
+
+def render_report(art, refs=None) -> str:
+    refs = refs or []
+    blocker = art.blocker or {}
+    vc = art.verdict_class
+    gloss = _VERDICT_GLOSS.get(vc, vc)
+    lines: list[str] = []
+
+    # 1. Verdict block (headline)
+    _render_verdict_block(lines, art, blocker, vc, gloss)
+
+    # 2. The crux — strongest objection + decisive test, foregrounded
+    _render_crux_block(lines, art)
+
+    # 3. Balanced case — "Case for" immediately followed by "Case against"
+    _render_balanced_case(lines, art)
+
+    # 4. Claims & checks
+    _render_claims_block(lines, art, refs)
+
+    # 5. Completion & positioning (supporting layer, now below the crux)
+    _render_supporting_layer(lines, art)
+
+    # 6. References
     if refs:
         lines.append("## References")
         for ref in refs:
             lines.append(_reference_line(ref))
         lines.append("")
+
+    # 7. Honest-limit sentence
     lines += ["---", f"> {LIMIT}"]
     return "\n".join(lines)
 

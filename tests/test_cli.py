@@ -1,6 +1,18 @@
 import json
 
-from valagents.artifact import IdeaArtifact
+from valagents.artifact import (
+    AtomicClaim,
+    ConvincingCase,
+    FormalClaim,
+    IdeaArtifact,
+    IdeaCompletion,
+    KnownLimit,
+    Prediction,
+    PriorArtPositioning,
+    SteelmanObjection,
+    TheoryBridge,
+    ValidationPlan,
+)
 from valagents.cli import render_report, run_cli
 from valagents.references import Reference
 from tests.test_scheduler_repair import BASE, FakeBackend, scripted
@@ -101,3 +113,134 @@ async def test_run_cli_writes_references_bib_and_markers(tmp_path, cfg):
     assert "## References" in report
     assert "Provided Curl" in report
     assert "@article" in bib
+
+
+def _populated_artifact() -> IdeaArtifact:
+    """Return an artifact with all major sections populated."""
+    claim = AtomicClaim(
+        id="c1",
+        statement="test claim",
+        type="empirical",
+        role="novel_core",
+        load_bearing=True,
+    )
+    return IdeaArtifact(
+        raw_idea="test idea",
+        formal_claim=FormalClaim(statement="formal test claim", falsifiable=True),
+        claim_graph=[claim],
+        completion=IdeaCompletion(
+            status="completed_candidate",
+            completed_idea="a complete idea",
+            mechanism="some mechanism",
+            weakest_link="the weak link",
+        ),
+        theory_bridge=TheoryBridge(theory_family="QFT"),
+        prior_art_positioning=PriorArtPositioning(
+            closest_prior="prior work",
+            similarity="similar in X",
+            difference="different in Y",
+            what_is_new="Z is new",
+        ),
+        known_limits=[KnownLimit(limit="finite size", recovered="no")],
+        convincing_case=ConvincingCase(
+            elevator_version="short pitch",
+            technical_version="long pitch",
+            why_existing_theory_leaves_room="gap",
+            why_plausible="plausible",
+        ),
+        steelman_objection=SteelmanObjection(
+            strongest_objection="strong objection text",
+            mechanism_of_failure="fails via X",
+            threatening_result="result R",
+            what_would_kill_it="observation O",
+            fair_summary="skeptic concludes: weak",
+        ),
+        predictions=[
+            Prediction(observable="obs1", measurable=True, detectable="yes")
+        ],
+        validation_plan=ValidationPlan(
+            decisive_test="run experiment E",
+            confirm_if="result > threshold",
+            refute_if="result < threshold",
+            cost="low",
+        ),
+    )
+
+
+def test_report_order_verdict_before_objection_before_case_for():
+    """Strongest objection + decisive test must appear BEFORE the case-for section."""
+    art = _populated_artifact()
+    report = render_report(art)
+    assert "Strongest objection" in report
+    assert "Decisive test" in report
+    assert "Case for" in report
+    assert report.index("Strongest objection") < report.index("Case for")
+    assert report.index("Decisive test") < report.index("Case for")
+
+
+def test_report_full_order_invariant():
+    """Populated artifact: verdict → strongest objection → decisive test →
+    case for → case against → claims → completion → references."""
+    art = _populated_artifact()
+    refs = [
+        Reference(
+            locator="arxiv:0000.00000",
+            title="Test Ref",
+            authors=["Author"],
+            year="2024",
+            url="https://example.com",
+            origin="provided",
+        )
+    ]
+    report = render_report(art, refs)
+
+    # Collect positions of key markers
+    idx_verdict = report.index("**Verdict:**")
+    idx_objection = report.index("Strongest objection")
+    idx_decisive = report.index("Decisive test")
+    idx_case_for = report.index("Case for")
+    idx_case_against = report.index("Case against")
+    idx_claims = report.index("## Claim Graph")
+    idx_completion = report.index("## Completed Candidate")
+    idx_references = report.index("## References")
+
+    assert idx_verdict < idx_objection
+    assert idx_objection < idx_decisive
+    assert idx_decisive < idx_case_for
+    assert idx_case_for < idx_case_against
+    assert idx_case_against < idx_claims
+    assert idx_claims < idx_completion
+    assert idx_completion < idx_references
+
+
+def test_report_no_section_dropped():
+    """All sections present in the populated artifact render."""
+    art = _populated_artifact()
+    report = render_report(art)
+    assert "**Verdict:**" in report
+    assert "Strongest objection" in report
+    assert "Decisive test" in report
+    assert "Case for" in report
+    assert "Case against" in report
+    assert "## Claim Graph" in report
+    assert "## Completed Candidate" in report
+    assert "## Theory Bridge" in report
+    assert "## Prior-Art Positioning" in report
+    assert "## Known Limits" in report
+    assert "## Predictions" in report
+    assert "never 'true'" in report
+
+
+def test_report_ill_posed_reframe_not_experiment():
+    """ill_posed verdict must include the 'reframe, not experiment' phrase."""
+    from valagents.artifact import FormalClaim, Faithfulness
+
+    art = IdeaArtifact(
+        raw_idea="unfalsifiable idea",
+        formal_claim=FormalClaim(statement="not falsifiable", falsifiable=False),
+        faithfulness=Faithfulness(verdict="yes"),
+        finalized=True,
+    )
+    report = render_report(art)
+    assert art.verdict_class == "ill_posed"
+    assert "reframing, not an experiment" in report
