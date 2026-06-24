@@ -51,6 +51,81 @@ def _parse_number(s, glob) -> float:
         raise ValueError("rejected: '__' not allowed")
     return float(parse_expr(str(s), local_dict={}, global_dict=glob, evaluate=True).evalf())
 
+def _npfuncs(sympy, np):
+    # Unary whitelisted functions only. NOTE: sqrt(x) arrives as Pow(x, 1/2) after parse_expr(evaluate=True),
+    # so it is handled by the _eval_expr Pow branch (with the narrow-Pow complex guard) — not listed here.
+    return {sympy.sin: np.sin, sympy.cos: np.cos, sympy.tan: np.tan, sympy.exp: np.exp,
+            sympy.log: np.log, sympy.Abs: np.abs, sympy.sign: np.sign, sympy.tanh: np.tanh}
+
+def _eval_expr(node, env, np, npfuncs):
+    """Eval a restricted-parsed SymPy Expr over env (symbol->float). Whitelisted node TYPES only;
+    anything else (or unbound symbol / non-finite / complex) raises -> uncertain. No eval/lambdify."""
+    import math
+    if node.is_Symbol:
+        name = node.name
+        if name not in env:
+            raise ValueError(f"unbound symbol: {name}")
+        val = float(env[name])
+        if not math.isfinite(val):                       # finite-real check at the symbol leaf too
+            raise ValueError(f"non-finite symbol value: {name}")
+        return val
+    if node.is_Number or node.is_NumberSymbol:       # Integer/Float/Rational/pi/E
+        return float(node)
+    if node.is_Add:
+        s = 0.0
+        for a in node.args:
+            s += _eval_expr(a, env, np, npfuncs)
+        return s
+    if node.is_Mul:
+        p = 1.0
+        for a in node.args:
+            p *= _eval_expr(a, env, np, npfuncs)
+        return p
+    if node.is_Pow:
+        base = _eval_expr(node.args[0], env, np, npfuncs)
+        expo = _eval_expr(node.args[1], env, np, npfuncs)
+        val = base ** expo
+        if isinstance(val, complex) or not math.isfinite(val):   # narrow Pow: no complex continuation
+            raise ValueError(f"non-finite/complex power: {base}**{expo}")
+        return float(val)
+    fn = npfuncs.get(node.func)
+    if fn is not None and len(node.args) == 1:
+        val = float(fn(_eval_expr(node.args[0], env, np, npfuncs)))
+        if not math.isfinite(val):
+            raise ValueError(f"non-finite function value: {node.func}")
+        return val
+    raise ValueError(f"unsupported expression node: {type(node).__name__}")
+
+def _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs):
+    """Deterministic fixed-step RK4. rhs_exprs: list of (var, Expr); var_index: var->row.
+    env_base: fixed params (symbol->float). Returns trajectory (n_steps+1, n_vars). Raises on non-finite."""
+    nvars = len(rhs_exprs)
+    y = np.array(y0, dtype=float)
+    if not np.all(np.isfinite(y)) or np.iscomplexobj(y):     # finite-real INITIAL condition (before any step)
+        raise ValueError("non-finite initial condition")
+    def deriv(yv):
+        env = dict(env_base)
+        for var, i in var_index.items():
+            env[var] = float(yv[i])
+        d = np.empty(nvars, dtype=float)
+        for k, (_, expr) in enumerate(rhs_exprs):
+            d[k] = _eval_expr(expr, env, np, npfuncs)
+        if not np.all(np.isfinite(d)):
+            raise ValueError("non-finite derivative")
+        return d
+    traj = np.empty((n_steps + 1, nvars), dtype=float)
+    traj[0] = y
+    for step in range(n_steps):
+        k1 = deriv(y)
+        k2 = deriv(y + 0.5 * dt * k1)
+        k3 = deriv(y + 0.5 * dt * k2)
+        k4 = deriv(y + dt * k3)
+        y = y + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        if not np.all(np.isfinite(y)) or np.iscomplexobj(y):
+            raise ValueError(f"non-finite trajectory at step {step + 1}")
+        traj[step + 1] = y
+    return traj
+
 def _run_magnitude(plan: dict) -> dict:
     import sympy
     import numpy as np
