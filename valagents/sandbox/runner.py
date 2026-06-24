@@ -328,7 +328,7 @@ def _run_simulation(plan: dict) -> dict:
         # fixed params/init
         base_params = {k: parse_num(v) for k, v in plan.get("params", {}).items()}
         base_init = {k: parse_num(v) for k, v in plan["init"].items()}
-        null_parsed = {k: parse_num(v) for k, v in null_overrides.items()}
+        null_parsed = {k: parse_num(v) for k, v in null_overrides.items()} if null_overrides else {}
         passes = 0
         detail = []                                 # per-grid-point audit table (persisted via stdout.txt)
         for pov, iov in grid:                       # swept overrides fixed

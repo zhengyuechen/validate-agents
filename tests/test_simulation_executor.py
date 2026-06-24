@@ -1,5 +1,5 @@
 from valagents.computation import ComputationPlan
-from valagents.config import Config
+from valagents.config import Config, SimCfg
 from valagents.sandbox.executor import run_plan
 
 def cfg():
@@ -110,9 +110,19 @@ def test_null_arm_blowup_uncertain():
     # null arm a=-1e6 -> dx/dt = 1e6*x -> blows up -> non-finite in the null arm -> uncertain
     v = run_plan(splan(null_overrides={"a": "-1e6"}), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+    assert "reference undeclared" not in (v.result.error or "")   # reached integration, not rejected at validation
 
 def test_total_work_counts_both_arms():
     # grid 120 * n_steps 10_000 = 1.2M (< 2M for 1 arm) but 2.4M at x2 -> total-work cap fires in discrimination
     v = run_plan(splan(null_overrides={"a": "0"}, param_sweep={"a": ["0.8", "1.2", "120"]},
                        t_span=["0", "10"], dt="0.001", max_steps=200_000, max_grid_points=400), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+def test_single_arm_within_double_budget_passes():
+    # converse of the total-work x2 test: a single-arm plan where gsize*n_steps (150k) < max_total (200k)
+    # but 150k*2 (300k) > max_total -- proving n_arms==1 for single-arm
+    # (a hardcoded n_arms=2 would wrongly cap-reject this as uncertain)
+    cfg2 = Config(default_model="fake", sim=SimCfg(max_total_steps=200_000))
+    v = run_plan(splan(param_sweep={"a": ["0.8", "1.2", "10"]}, t_span=["0", "15"], dt="0.001",
+                       max_steps=200_000, max_grid_points=400), cfg2)
+    assert v.verdict == "pass"
