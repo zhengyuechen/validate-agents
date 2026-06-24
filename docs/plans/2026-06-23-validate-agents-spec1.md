@@ -2227,7 +2227,7 @@ def to_bibtex(refs: list[Reference]) -> str:
 - Produces: `async run_cli(seed, llm, cfg, backend=None, out_dir=None) -> dict` returning `{"artifact": IdeaArtifact, "json_path": str, "report_path": str}`; `render_report(artifact) -> str` (markdown including the §1 limit sentence verbatim); `main()` (argparse: `valagents "<seed>"`).
 - The limit sentence (ships in every report): *"internally_validated means 'survived the checks this system can run,' never 'true' — every lens shares the base model's blind spots."*
 
-- [ ] **Step 1: Write failing tests** `tests/test_cli.py`:
+- [x] **Step 1: Write failing tests** `tests/test_cli.py`:
 
 ```python
 from valagents.cli import render_report, run_cli
@@ -2250,9 +2250,9 @@ async def test_run_cli_writes_json_and_report(tmp_path, cfg):
     assert data["raw_idea"] == "seed" and "status" in data
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement `valagents/cli.py`.**
+- [x] **Step 3: Implement `valagents/cli.py`.**
 
 ```python
 """CLI: valagents "<seed>" → IdeaArtifact JSON + markdown report."""
@@ -2319,14 +2319,14 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 4: Run → PASS.** `pytest tests/test_cli.py -v` → 2 passed.
+- [x] **Step 4: Run → PASS.** `pytest tests/test_cli.py -v` → 2 passed.
 
-- [ ] **Step 5 (references integration):** Extend `valagents/cli.py` with the following:
+- [x] **Step 5 (references integration):** Extend `valagents/cli.py` with the following:
   - `run_cli(...)` gains params `references_path=None, resolver=None`; after `run(...)`, call `refs = await build_references(art, references_path, resolver)`, write `results/<slug>.bib` with `to_bibtex(refs)`, and pass `refs` to `render_report`.
   - `render_report(art, refs=None)`: when `refs`, append `[n]` markers to each grounded claim line via `markers_for_claim(refs, claim.id)`, and add a `## References` section listing `[n] {title} — {", ".join(authors)} ({year}). {url}  ·{origin} ·{relation}` (unresolved entries show the raw locator).
   - `main()`: add `--references` argument; build `resolver = DefaultResolver()` from `valagents.references` when `--references` is given.
 
-- [ ] **Step 6: Commit.** `git add -A && git commit -m "feat(cli): run + JSON/markdown report carrying the honesty limit"`
+- [x] **Step 6: Commit.** `git add -A && git commit -m "feat(cli): run + JSON/markdown report carrying the honesty limit"`
 
 ---
 
