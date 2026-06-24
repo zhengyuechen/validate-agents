@@ -62,3 +62,32 @@ def test_rk4_trajectory_blowup_raises():
     vi = {"x": 0}
     with pytest.raises(ValueError):
         runner._rk4_integrate(rhs, vi, {"k": 1e308}, np.array([1e308]), n_steps=50, dt=10.0, np=np, npfuncs=_np())
+
+def test_eval_expr_allow_nonfinite_returns_inf():
+    import sympy, numpy as np, math
+    from valagents.sandbox.runner import _eval_expr, _npfuncs
+    x = sympy.Symbol("x")
+    expr = x ** 2
+    env = {"x": 1e200}                       # 1e200**2 = 1e400 -> OverflowError in Pow
+    # default: raises
+    try:
+        _eval_expr(expr, env, np, _npfuncs(sympy, np))
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+    # allow_nonfinite: returns inf, does not raise
+    val = _eval_expr(expr, env, np, _npfuncs(sympy, np), allow_nonfinite=True)
+    assert math.isinf(val)
+
+def test_eval_expr_allow_nonfinite_still_rejects_complex():
+    import sympy, numpy as np
+    from valagents.sandbox.runner import _eval_expr, _npfuncs
+    x = sympy.Symbol("x")
+    expr = x ** 0.5                           # sqrt of a negative -> complex
+    env = {"x": -4.0}
+    for flag in (False, True):                # complex rejected in BOTH modes
+        try:
+            _eval_expr(expr, env, np, _npfuncs(sympy, np), allow_nonfinite=flag)
+            assert False, "complex must always raise"
+        except ValueError:
+            pass

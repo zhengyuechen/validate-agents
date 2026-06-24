@@ -64,3 +64,19 @@ def test_build_grid_within_cap_ok():
     pn = lambda s: float(s)
     grid = runner._build_grid({"a": ["0", "1", "3"]}, {}, pn, max_grid_points=100)
     assert len(grid) == 3   # under the cap, builds normally
+
+def test_extract_observable_max_abs():
+    import numpy as np
+    from valagents.sandbox.runner import _extract_observable
+    # traj column for var "x": values [-3, 1, 2, -5]; peak |x| over full window = 5
+    traj = np.array([[-3.0], [1.0], [2.0], [-5.0]])
+    obs = {"name": "max_abs", "var": "x", "window_frac": "1.0"}
+    assert _extract_observable(traj, {"x": 0}, obs, np) == 5.0
+
+def test_extract_observable_max_abs_windowed():
+    import numpy as np
+    from valagents.sandbox.runner import _extract_observable
+    # window_frac 0.5 -> last 2 of 4 samples [2, -5] -> peak |x| = 5
+    traj = np.array([[-30.0], [1.0], [2.0], [-5.0]])
+    obs = {"name": "max_abs", "var": "x", "window_frac": "0.5"}
+    assert _extract_observable(traj, {"x": 0}, obs, np) == 5.0

@@ -58,39 +58,50 @@ def _npfuncs(sympy, np):
     return {sympy.sin: np.sin, sympy.cos: np.cos, sympy.tan: np.tan, sympy.exp: np.exp,
             sympy.log: np.log, sympy.Abs: np.abs, sympy.sign: np.sign, sympy.tanh: np.tanh}
 
-def _eval_expr(node, env, np, npfuncs):
+def _eval_expr(node, env, np, npfuncs, allow_nonfinite=False):
     """Eval a restricted-parsed SymPy Expr over env (symbol->float). Whitelisted node TYPES only;
-    anything else (unbound symbol / non-whitelisted node / non-finite / complex) raises ValueError.
-    Every return value is a finite real float. No eval/lambdify."""
+    anything else (unbound symbol / non-whitelisted node / complex) raises ValueError.
+    With allow_nonfinite=False (default) a non-finite real also raises and every return is a finite real float.
+    With allow_nonfinite=True, a non-finite REAL (inf/nan) is returned as a float (complex still raises) — used
+    ONLY by the overflow-capturing integrator so a divergence/domain-error can be classified, not swallowed.
+    No eval/lambdify."""
     if node.is_Symbol:
         name = node.name
         if name not in env:
             raise ValueError(f"unbound symbol: {name}")
         val = float(env[name])
-    elif node.is_Number or node.is_NumberSymbol:        # Integer/Float/Rational/pi/E (oo/nan caught by final guard)
+    elif node.is_Number or node.is_NumberSymbol:
         val = float(node)
     elif node.is_Add:
         val = 0.0
         for a in node.args:
-            val += _eval_expr(a, env, np, npfuncs)
+            val += _eval_expr(a, env, np, npfuncs, allow_nonfinite)
     elif node.is_Mul:
         val = 1.0
         for a in node.args:
-            val *= _eval_expr(a, env, np, npfuncs)
+            val *= _eval_expr(a, env, np, npfuncs, allow_nonfinite)
     elif node.is_Pow:
-        base = _eval_expr(node.args[0], env, np, npfuncs)
-        expo = _eval_expr(node.args[1], env, np, npfuncs)
+        base = _eval_expr(node.args[0], env, np, npfuncs, allow_nonfinite)
+        expo = _eval_expr(node.args[1], env, np, npfuncs, allow_nonfinite)
         try:
             val = base ** expo                          # narrow Pow: no complex continuation
-        except (OverflowError, ZeroDivisionError, ValueError) as e:
-            raise ValueError(f"invalid power {base}**{expo}: {e}")
+        except OverflowError as e:
+            if not allow_nonfinite:
+                raise ValueError(f"invalid power {base}**{expo}: {e}")
+            val = math.inf                              # magnitude overflow -> +inf (sign irrelevant downstream)
+        except (ZeroDivisionError, ValueError) as e:
+            if not allow_nonfinite:
+                raise ValueError(f"invalid power {base}**{expo}: {e}")
+            val = math.nan                              # e.g. 0**negative -> domain error -> nan
     else:
         fn = npfuncs.get(node.func)
         if fn is None or len(node.args) != 1:
             raise ValueError(f"unsupported expression node: {type(node).__name__}")
-        val = fn(_eval_expr(node.args[0], env, np, npfuncs))
-    if isinstance(val, complex) or not math.isfinite(val):   # check complex FIRST (isfinite raises on complex)
-        raise ValueError(f"non-finite/complex value at {type(node).__name__}")
+        val = fn(_eval_expr(node.args[0], env, np, npfuncs, allow_nonfinite))
+    if isinstance(val, complex):                        # complex ALWAYS rejected (both modes)
+        raise ValueError(f"complex value at {type(node).__name__}")
+    if not allow_nonfinite and not math.isfinite(val):
+        raise ValueError(f"non-finite value at {type(node).__name__}")
     return float(val)
 
 def _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs):
@@ -149,6 +160,8 @@ def _extract_observable(traj, var_index, observable, np):
         val = float(np.max(window))
     elif name == "min_value":
         val = float(np.min(window))
+    elif name == "max_abs":
+        val = float(np.max(np.abs(window)))
     else:
         raise ValueError(f"unknown observable: {name}")
     if not math.isfinite(val):
