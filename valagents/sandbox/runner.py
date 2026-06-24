@@ -244,8 +244,103 @@ def _run_magnitude(plan: dict) -> dict:
         return {"ok": False, "matched": "neither", "error": f"{type(e).__name__}: {e}"}
     return {"ok": False, "matched": "neither", "error": "no computation performed"}
 
+_SIM_REQUIRED = ["state_vars", "rhs", "init", "t_span", "dt", "observable", "sim_criterion", "robust_frac"]
+_SIM_CAPS = ["max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes"]
+
+def _u(msg):
+    return {"ok": False, "matched": "neither", "error": msg}
+
+def _run_simulation(plan: dict) -> dict:
+    import math
+    import sympy
+    import numpy as np
+    from sympy.parsing.sympy_parser import parse_expr
+    if plan.get("primitive") != "ode_integrate":
+        return _u(f"unsupported primitive: {plan.get('primitive')}")
+    for f in _SIM_REQUIRED:
+        if not plan.get(f):
+            return _u(f"missing required field: {f}")
+    ceil = plan.get("_sim_ceilings", {})
+    # caps: positive, and not exceeding config ceilings
+    for cap in _SIM_CAPS:
+        v = int(plan.get(cap, 0))
+        if v <= 0:
+            return _u(f"non-positive cap: {cap}")
+        if ceil and v > int(ceil.get(cap, 0)):
+            return _u(f"cap {cap}={v} exceeds ceiling {ceil.get(cap)}")
+    state_vars = list(plan["state_vars"])
+    if len(state_vars) > int(plan["max_state_vars"]):
+        return _u("too many state_vars")
+    glob = {n: getattr(sympy, n) for n in _ALLOWED}
+    glob["__builtins__"] = {}
+    parse_num = lambda s: _parse_number(s, glob)
+    npfuncs = _npfuncs(sympy, np)
+    try:
+        # The restricted parser is aware of state vars AND parameter names (fixed params + swept params),
+        # so RHS like "-a*x" parses; any free symbol OUTSIDE that declared set is rejected up front
+        # (forbids arbitrary undeclared names — fail-closed, not deferred to an eval-time unbound error).
+        allowed = list(state_vars) + list(plan.get("params", {}).keys()) + list(plan.get("param_sweep", {}).keys())
+        local = {n: sympy.Symbol(n) for n in allowed}
+        allowed_syms = set(local.values())
+        rhs_exprs = []
+        for var in state_vars:
+            src = str(plan["rhs"].get(var, ""))
+            if not src:
+                return _u(f"missing rhs for state var: {var}")
+            if "__" in src:
+                return _u("rejected: '__' in rhs")
+            expr = parse_expr(src, local_dict=local, global_dict=glob, evaluate=True)
+            if not expr.free_symbols <= allowed_syms:
+                return _u(f"rhs '{var}' references undeclared symbol(s): {expr.free_symbols - allowed_syms}")
+            if expr.count_ops() + 1 > int(plan["max_expr_nodes"]):
+                return _u(f"rhs '{var}' exceeds max_expr_nodes")
+            rhs_exprs.append((var, expr))
+        var_index = {v: i for i, v in enumerate(state_vars)}
+        # grid + caps
+        grid = _build_grid(plan.get("param_sweep", {}), plan.get("init_sweep", {}), parse_num)
+        gsize = len(grid)
+        if gsize > int(plan["max_grid_points"]):
+            return _u("grid exceeds max_grid_points")
+        if ceil and gsize < int(ceil.get("min_grid_points", 0)):
+            return _u(f"grid size {gsize} < min_grid_points (not a sweep)")
+        t0, t1 = parse_num(plan["t_span"][0]), parse_num(plan["t_span"][1])
+        dt = parse_num(plan["dt"])
+        if dt <= 0 or t1 <= t0:
+            return _u("invalid t_span/dt")
+        n_steps = int(math.ceil((t1 - t0) / dt))
+        if n_steps > int(plan["max_steps"]):
+            return _u("n_steps exceeds max_steps")
+        if ceil and gsize * n_steps > int(ceil.get("max_total_steps", 0)):
+            return _u(f"total work {gsize}*{n_steps} exceeds max_total_steps")
+        # fixed params/init
+        base_params = {k: parse_num(v) for k, v in plan.get("params", {}).items()}
+        base_init = {k: parse_num(v) for k, v in plan["init"].items()}
+        passes = 0
+        detail = []                                 # per-grid-point audit table (persisted via stdout.txt)
+        for pov, iov in grid:                       # swept overrides fixed
+            env_base = {**base_params, **pov}
+            init_vals = {**base_init, **iov}
+            y0 = np.array([init_vals[v] for v in state_vars], dtype=float)
+            traj = _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
+            obs = _extract_observable(traj, var_index, plan["observable"], np)
+            ok_pt = _eval_criterion(obs, plan["sim_criterion"])
+            if ok_pt:
+                passes += 1
+            detail.append({"params": pov, "init": iov, "observable": obs, "pass": ok_pt})
+        frac = passes / gsize
+        robust = frac >= parse_num(plan["robust_frac"])
+        return {"ok": True,
+                "computed": f"robust: {passes}/{gsize} pass ({frac:.2f} >= {plan['robust_frac']})",
+                "matched": "confirm" if robust else "refute",
+                "detail": detail}                   # ignored by ComputationResult; saved in stdout.txt artifact
+    except Exception as e:                          # parse error, non-finite/complex, bad window, etc.
+        return _u(f"{type(e).__name__}: {e}")
+
 def _run(plan: dict) -> dict:
-    if plan.get("kind") == "magnitude":
+    kind = plan.get("kind")
+    if kind == "simulation":
+        return _run_simulation(plan)
+    if kind == "magnitude":
         return _run_magnitude(plan)
     return _run_symbolic(plan)
 

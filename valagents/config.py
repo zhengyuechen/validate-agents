@@ -19,6 +19,14 @@ class SandboxCfg(BaseModel):
     cpu_s: int = 10
     mem_mb: int = 512
 
+class SimCfg(BaseModel):
+    max_state_vars: int = 8
+    max_expr_nodes: int = 200
+    max_grid_points: int = 400
+    max_steps: int = 200_000
+    max_total_steps: int = 2_000_000
+    min_grid_points: int = 4
+
 class Config(BaseModel):
     default_model: str
     models: dict[str, str] = {}
@@ -26,6 +34,7 @@ class Config(BaseModel):
     grounding: GroundCfg = GroundCfg()
     gate: GateCfg = GateCfg()
     sandbox: SandboxCfg = SandboxCfg()
+    sim: SimCfg = SimCfg()
     results_dir: str = "results"
 
     def model_for(self, agent: str) -> str:

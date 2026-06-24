@@ -46,9 +46,14 @@ def run_plan(plan: ComputationPlan, cfg, artifacts_dir: str | None = None) -> Co
         return _verdict(plan, ComputationResult(ok=False, error="sandbox disabled"))
     t0 = time.monotonic()
     try:
+        payload = plan.model_dump_json()
+        if plan.kind == "simulation":
+            d = json.loads(payload)
+            d["_sim_ceilings"] = cfg.sim.model_dump()   # ceilings reach the subprocess; saved artifact stays the frozen plan
+            payload = json.dumps(d)
         proc = subprocess.run(
             [sys.executable, _RUNNER],
-            input=plan.model_dump_json(), capture_output=True, text=True,
+            input=payload, capture_output=True, text=True,
             timeout=cfg.sandbox.wall_s,
             preexec_fn=_preexec(cfg.sandbox.cpu_s, cfg.sandbox.mem_mb) if os.name == "posix" else None,
             env={"PATH": os.environ.get("PATH", "")},
