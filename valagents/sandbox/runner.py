@@ -4,9 +4,10 @@ Imports ONLY json + sympy (+ numpy for magnitude). No network, no filesystem wri
 NEVER execs LLM-provided code: expressions are parsed with parse_expr over a restricted
 namespace, not sympify/eval."""
 import json
+import math
 import sys
 
-_ALLOWED = ("sin", "cos", "tan", "exp", "log", "sqrt", "Abs", "sign",
+_ALLOWED = ("sin", "cos", "tan", "tanh", "exp", "log", "sqrt", "Abs", "sign",
             "pi", "E", "oo", "Rational", "Integer", "Float")
 
 def _run_symbolic(plan: dict) -> dict:
@@ -59,42 +60,38 @@ def _npfuncs(sympy, np):
 
 def _eval_expr(node, env, np, npfuncs):
     """Eval a restricted-parsed SymPy Expr over env (symbol->float). Whitelisted node TYPES only;
-    anything else (or unbound symbol / non-finite / complex) raises -> uncertain. No eval/lambdify."""
-    import math
+    anything else (unbound symbol / non-whitelisted node / non-finite / complex) raises ValueError.
+    Every return value is a finite real float. No eval/lambdify."""
     if node.is_Symbol:
         name = node.name
         if name not in env:
             raise ValueError(f"unbound symbol: {name}")
         val = float(env[name])
-        if not math.isfinite(val):                       # finite-real check at the symbol leaf too
-            raise ValueError(f"non-finite symbol value: {name}")
-        return val
-    if node.is_Number or node.is_NumberSymbol:       # Integer/Float/Rational/pi/E
-        return float(node)
-    if node.is_Add:
-        s = 0.0
+    elif node.is_Number or node.is_NumberSymbol:        # Integer/Float/Rational/pi/E (oo/nan caught by final guard)
+        val = float(node)
+    elif node.is_Add:
+        val = 0.0
         for a in node.args:
-            s += _eval_expr(a, env, np, npfuncs)
-        return s
-    if node.is_Mul:
-        p = 1.0
+            val += _eval_expr(a, env, np, npfuncs)
+    elif node.is_Mul:
+        val = 1.0
         for a in node.args:
-            p *= _eval_expr(a, env, np, npfuncs)
-        return p
-    if node.is_Pow:
+            val *= _eval_expr(a, env, np, npfuncs)
+    elif node.is_Pow:
         base = _eval_expr(node.args[0], env, np, npfuncs)
         expo = _eval_expr(node.args[1], env, np, npfuncs)
-        val = base ** expo
-        if isinstance(val, complex) or not math.isfinite(val):   # narrow Pow: no complex continuation
-            raise ValueError(f"non-finite/complex power: {base}**{expo}")
-        return float(val)
-    fn = npfuncs.get(node.func)
-    if fn is not None and len(node.args) == 1:
-        val = float(fn(_eval_expr(node.args[0], env, np, npfuncs)))
-        if not math.isfinite(val):
-            raise ValueError(f"non-finite function value: {node.func}")
-        return val
-    raise ValueError(f"unsupported expression node: {type(node).__name__}")
+        try:
+            val = base ** expo                          # narrow Pow: no complex continuation
+        except (OverflowError, ZeroDivisionError, ValueError) as e:
+            raise ValueError(f"invalid power {base}**{expo}: {e}")
+    else:
+        fn = npfuncs.get(node.func)
+        if fn is None or len(node.args) != 1:
+            raise ValueError(f"unsupported expression node: {type(node).__name__}")
+        val = fn(_eval_expr(node.args[0], env, np, npfuncs))
+    if isinstance(val, complex) or not math.isfinite(val):   # check complex FIRST (isfinite raises on complex)
+        raise ValueError(f"non-finite/complex value at {type(node).__name__}")
+    return float(val)
 
 def _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs):
     """Deterministic fixed-step RK4. rhs_exprs: list of (var, Expr); var_index: var->row.

@@ -21,17 +21,17 @@ def test_eval_arithmetic_and_function():
 
 def test_eval_unbound_symbol_raises():
     e = _parse("x + z", ["x", "z"])
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         runner._eval_expr(e, {"x": 1.0}, np, _np())   # z unbound
 
 def test_eval_complex_pow_raises():
     e = _parse("x**0.5", ["x"])
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         runner._eval_expr(e, {"x": -1.0}, np, _np())   # negative base, fractional exp -> complex
 
 def test_eval_non_whitelisted_node_raises():
     e = sympy.Derivative(sympy.Symbol("x"), sympy.Symbol("x"))
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         runner._eval_expr(e, {"x": 1.0}, np, _np())
 
 def test_rk4_matches_exponential_decay():
@@ -53,5 +53,12 @@ def test_rk4_blowup_raises():
     # dx/dt = x**2, x0=10 -> finite-time blow-up -> non-finite -> raise
     rhs = [("x", _parse("x**2", ["x"]))]
     vi = {"x": 0}
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         runner._rk4_integrate(rhs, vi, {}, np.array([10.0]), 100000, 0.01, np, _np())
+
+def test_rk4_trajectory_blowup_raises():
+    # finite (huge) constant derivative -> RK4 update overflows y to inf -> step-level trajectory guard fires
+    rhs = [("x", _parse("k", ["x", "k"]))]
+    vi = {"x": 0}
+    with pytest.raises(ValueError):
+        runner._rk4_integrate(rhs, vi, {"k": 1e308}, np.array([1e308]), n_steps=50, dt=10.0, np=np, npfuncs=_np())
