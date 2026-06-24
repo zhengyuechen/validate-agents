@@ -40,6 +40,7 @@ def _run_symbolic(plan: dict) -> dict:
 _MAG_REQUIRED = {
     "sensitivity_ratio": ["predicted_effect", "baseline_or_null", "sensitivity",
                           "sensitivity_source", "threshold"],
+    "bound_check": ["predicted_effect", "bound", "bound_source"],
 }
 
 def _parse_number(s, glob) -> float:
@@ -72,6 +73,12 @@ def _run_magnitude(plan: dict) -> dict:
             detectable = ratio >= threshold
             return {"ok": True, "computed": f"ratio={ratio:.6g}",
                     "matched": "confirm" if detectable else "refute"}
+        if ck == "bound_check":
+            predicted = _parse_number(plan["predicted_effect"], glob)
+            bound = _parse_number(plan["bound"], glob)   # bound_source is presence-checked above, never parsed
+            compliant = predicted <= bound
+            return {"ok": True, "computed": f"predicted={predicted:.6g}, bound={bound:.6g}",
+                    "matched": "confirm" if compliant else "refute"}
     except Exception as e:
         return {"ok": False, "matched": "neither", "error": f"{type(e).__name__}: {e}"}
     return {"ok": False, "matched": "neither", "error": "no computation performed"}

@@ -39,3 +39,30 @@ def test_dunder_quantity_is_uncertain_not_executed():
 
 def test_run_plan_takes_no_llm():
     assert "llm" not in inspect.signature(run_plan).parameters
+
+
+def bplan(**kw):
+    base = dict(kind="magnitude", comparison_kind="bound_check",
+                predicted_effect="1e-3", bound="1e-2", bound_source="PDG2024")
+    base.update(kw)
+    return ComputationPlan(**base)
+
+def test_bound_complies_is_confirm():
+    v = run_plan(bplan(), cfg())                 # 1e-3 <= 1e-2 -> comply
+    assert v.verdict == "pass" and v.result.matched == "confirm" and v.result.ok
+
+def test_bound_violates_is_refute():
+    v = run_plan(bplan(predicted_effect="1e-1"), cfg())   # 1e-1 > 1e-2 -> violate
+    assert v.verdict == "fail" and v.result.matched == "refute"
+
+def test_bound_missing_source_is_uncertain():    # anti-laundering (L2-D2): no source -> never pass/fail
+    v = run_plan(bplan(bound_source=""), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_bound_missing_bound_is_uncertain():
+    v = run_plan(bplan(bound=""), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_bound_dunder_is_uncertain_not_executed():
+    v = run_plan(bplan(predicted_effect="x.__class__"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok

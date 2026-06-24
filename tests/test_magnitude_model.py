@@ -1,6 +1,6 @@
 import inspect
 from valagents.computation import (ComputationPlan, ComputationResult,
-                                   ComputationVerdict, verdict_to_attack)
+                                   ComputationVerdict, verdict_to_attack, verdict_to_check)
 
 def test_magnitude_plan_omits_symbolic_fields():
     p = ComputationPlan(kind="magnitude", comparison_kind="sensitivity_ratio",
@@ -36,3 +36,30 @@ def test_refute_nondiscriminating_is_landed_major():
 
 def test_verdict_to_attack_takes_no_llm():
     assert "llm" not in inspect.signature(verdict_to_attack).parameters
+
+
+def _bound_verdict(matched):
+    p = ComputationPlan(kind="magnitude", comparison_kind="bound_check",
+                        predicted_effect="1e-3", bound="1e-2", bound_source="PDG2024")
+    r = ComputationResult(ok=True, computed="predicted=0.001, bound=0.01", matched=matched)
+    v = ComputationVerdict(verdict=("pass" if matched == "confirm" else "fail"),
+                           measured="predicted=0.001, bound=0.01", plan=p, result=r)
+    return v
+
+def test_bound_check_pass_is_independent_sourced_executor_check():
+    rec = verdict_to_check(_bound_verdict("confirm"))
+    assert rec.lens == "executor" and rec.verdict == "pass"
+    assert rec.independent_sources == 1 and rec.sources and rec.sources[0].locator == "PDG2024"
+    assert "PDG2024" in rec.basis and "bound" in rec.basis        # loud source
+
+def test_bound_check_fail_maps_to_fail_check():
+    rec = verdict_to_check(_bound_verdict("refute"))
+    assert rec.verdict == "fail" and rec.independent_sources == 0
+
+def test_verdict_to_check_symbolic_unchanged():
+    p = ComputationPlan(expression="1/x", limit_variable="x", limit_point="oo",
+                        expected="0", expected_source="textbook")
+    r = ComputationResult(ok=True, computed="0", matched="confirm")
+    v = ComputationVerdict(verdict="pass", measured="0", plan=p, result=r)
+    rec = verdict_to_check(v)
+    assert "expected = 0" in rec.basis and rec.sources and rec.sources[0].locator == "textbook"
