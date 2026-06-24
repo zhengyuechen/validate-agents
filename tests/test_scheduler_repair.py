@@ -57,6 +57,11 @@ BASE = {
         "WHY_EXISTING_THEORY_LEAVES_ROOM: prior model leaves x unconstrained | "
         "WHY_PLAUSIBLE: mechanism is dimensionally consistent | SKEPTIC_TESTS: test t"
     ),
+    "steelman_objection": (
+        "STRONGEST_OBJECTION: x lacks experimental support | MECHANISM_OF_FAILURE: x fails at scale | "
+        "THREATENING_RESULT: prior null model | WHAT_WOULD_KILL_IT: null measurement | "
+        "FAIR_SUMMARY: promising but unvalidated"
+    ),
     "predictor": (
         "OBSERVABLE: o | EFFECT_SIZE: 2x | DISCRIMINATES_FROM: null | MEASURABLE: yes"
     ),

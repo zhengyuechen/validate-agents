@@ -73,6 +73,7 @@ from valagents.agents.theory_bridge import build_theory_bridge
 from valagents.agents.positioning import position_prior_art
 from valagents.agents.known_limits import check_known_limits
 from valagents.agents.convincing_case import build_convincing_case
+from valagents.agents.steelman import build_steelman_objection
 from valagents.agents.predictor import predict
 from valagents.agents.redteam import red_team
 from valagents.agents.validation_designer import design_validation
@@ -202,6 +203,13 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
         store.record({
             "event": "convincing_case",
             "skeptic_tests": case.skeptic_tests,
+        })
+    objection = await build_steelman_objection(art, llm, cfg)
+    if objection is not None:
+        store.set("steelman_objection", objection)
+        store.record({
+            "event": "steelman_objection",
+            "fair_summary": objection.fair_summary,
         })
     predictions = await predict(art.formal_claim, novelty, llm, cfg)
     store.set("predictions", predictions)

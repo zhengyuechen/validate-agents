@@ -277,6 +277,24 @@ ARTIFACT:
 End with exactly:
 ELEVATOR_VERSION: <...> | TECHNICAL_VERSION: <...> | WHY_EXISTING_THEORY_LEAVES_ROOM: <...> | WHY_PLAUSIBLE: <...> | SKEPTIC_TESTS: <comma-separated tests|none>"""
 
+STEELMAN_OBJECTION = COMMON_RUBRIC + """
+
+Role: you are the idea's most capable critic. Build the STRONGEST honest case that it is wrong — steelman the objection, do not strawman it; if the idea is actually strong, say where it nonetheless remains vulnerable.
+Checklist:
+- Name the single most damaging objection and develop it fully; do not list many weak ones.
+- Trace the concrete mechanism by which the idea most plausibly fails.
+- Identify the established theory, result, or bound that most directly threatens it.
+- State the decisive disconfirming observation or derivation that, if found, would kill it.
+- Close with a one-line honest summary of what a careful skeptic would conclude.
+- Do not strawman; engage with the strongest version of the idea.
+- Do not call the idea false unless a demonstrated refutation exists; name vulnerabilities, not verdicts.
+
+ARTIFACT:
+{artifact}
+
+End with exactly:
+STRONGEST_OBJECTION: <...> | MECHANISM_OF_FAILURE: <...> | THREATENING_RESULT: <...> | WHAT_WOULD_KILL_IT: <...> | FAIR_SUMMARY: <...>"""
+
 REPAIRER = COMMON_RUBRIC + """
 
 Role: repair only the named target sub-claims after a landed attack or derivation gap.

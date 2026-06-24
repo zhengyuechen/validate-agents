@@ -82,6 +82,13 @@ class ConvincingCase(BaseModel):
     why_plausible: str = ""
     skeptic_tests: list[str] = []
 
+class SteelmanObjection(BaseModel):
+    strongest_objection: str = ""       # the single most damaging objection, steelmanned
+    mechanism_of_failure: str = ""      # the concrete way the idea most plausibly fails
+    threatening_result: str = ""        # the established theory/result/bound that most threatens it
+    what_would_kill_it: str = ""        # the decisive disconfirming observation/derivation
+    fair_summary: str = ""              # an honest one-line "what a careful skeptic concludes"
+
 class Prediction(BaseModel):
     observable: str
     effect_size: str = ""
@@ -167,6 +174,7 @@ class IdeaArtifact(BaseModel):
     prior_art_positioning: PriorArtPositioning | None = None
     known_limits: list[KnownLimit] = []
     convincing_case: ConvincingCase | None = None
+    steelman_objection: SteelmanObjection | None = None
     predictions: list[Prediction] = []
     attacks: list[Attack] = []
     attack_surface: AttackSurface | None = None

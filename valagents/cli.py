@@ -151,6 +151,17 @@ def render_report(art, refs=None) -> str:
             f"**Skeptic tests:** {', '.join(case.skeptic_tests) or 'none'}",
             "",
         ]
+    if art.steelman_objection:
+        obj = art.steelman_objection
+        lines += [
+            "## Steelman Objection (the case against)",
+            f"**Strongest objection:** {obj.strongest_objection}",
+            f"**Mechanism of failure:** {obj.mechanism_of_failure}",
+            f"**Threatening result:** {obj.threatening_result}",
+            f"**What would kill it:** {obj.what_would_kill_it}",
+            f"**Fair summary:** {obj.fair_summary}",
+            "",
+        ]
     if art.validation_plan:
         plan = art.validation_plan
         lines += [
