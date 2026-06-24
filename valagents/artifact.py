@@ -46,11 +46,15 @@ class Novelty(BaseModel):
     delta: str = ""
     position: Literal["new", "special_case", "restatement"] = "new"
 
+class Assumption(BaseModel):
+    text: str = ""
+    status: Literal["standard", "contested", "novel_load_bearing"] = "standard"
+
 class IdeaCompletion(BaseModel):
     status: Literal["incomplete", "completed_candidate", "polished_research_plan"] = "incomplete"
     completed_idea: str = ""
     mechanism: str = ""
-    assumptions: list[str] = []
+    assumptions: list[Assumption] = []
     weakest_link: str = ""
 
 class TheoryBridge(BaseModel):
@@ -94,6 +98,7 @@ class Prediction(BaseModel):
     effect_size: str = ""
     discriminates_from: str = ""
     measurable: bool = False
+    detectable: Literal["yes", "no", "unclear"] = "unclear"
 
 class Attack(BaseModel):
     type: str
@@ -116,6 +121,8 @@ class ValidationPlan(BaseModel):
     controls: list[str] = []
     confirm_if: str = ""
     refute_if: str = ""
+    discriminates_from: str = ""
+    inferential_standard: str = ""
     cost: Literal["low", "medium", "high"] = "medium"
 
 class AtomicClaim(BaseModel):

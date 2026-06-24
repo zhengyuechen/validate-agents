@@ -20,11 +20,12 @@ def _render(art: IdeaArtifact) -> str:
     claims = "\n".join(f"- {c.id} ({c.type}/{c.role}): {c.statement}" for c in art.claim_graph)
     parts = [f"CLAIM: {fc}", f"SUB-CLAIMS:\n{claims}"]
     if art.completion is not None:
+        assumption_texts = ', '.join(a.text for a in art.completion.assumptions) or 'none'
         parts.append(
             "COMPLETED IDEA:\n"
             f"{art.completion.completed_idea}\n"
             f"MECHANISM: {art.completion.mechanism}\n"
-            f"ASSUMPTIONS: {', '.join(art.completion.assumptions) or 'none'}\n"
+            f"ASSUMPTIONS: {assumption_texts}\n"
             f"WEAKEST_LINK: {art.completion.weakest_link}"
         )
     if art.theory_bridge is not None:

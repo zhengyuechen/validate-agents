@@ -144,13 +144,14 @@ Checklist:
 - Name the null model, baseline, or closest existing model it distinguishes from.
 - Give an effect size as a direction, threshold, scaling relation, or order-of-magnitude expectation.
 - Mark MEASURABLE as no if the observable is vague, lacks an operational measurement, or cannot be distinguished from the comparator.
+- Mark DETECTABLE as no if the effect is real in principle but currently unmeasurable (numerically inert guard).
 - Prefer fewer high-value predictions over many generic consequences.
 
 CLAIM: {formal}
 DELTA vs prior work: {delta}
 
 Output ONE line per prediction, exactly:
-OBSERVABLE: <...> | EFFECT_SIZE: <...> | DISCRIMINATES_FROM: <...> | MEASURABLE: yes|no"""
+OBSERVABLE: <...> | EFFECT_SIZE: <...> | DISCRIMINATES_FROM: <...> | MEASURABLE: yes|no | DETECTABLE: yes|no|unclear"""
 
 RED_TEAM = COMMON_RUBRIC + """
 
@@ -189,12 +190,14 @@ Checklist:
 - CONFIRM_IF and REFUTE_IF must be concrete decision criteria.
 - Cost should reflect equipment/time/access burden, not the importance of the claim.
 - Avoid vague "collect more data" plans; specify what is measured or computed.
+- DISCRIMINATES_FROM must name the closest prior/alternative the test distinguishes from (reference PRIOR-ART POSITION.CLOSEST if available).
+- INFERENTIAL_STANDARD must state the decision threshold for empirical claims (e.g. power/sample size, pre-registration requirement, required controls).
 
 ARTIFACT:
 {artifact}
 
 End with exactly:
-TEST: <...> | CONFIRM_IF: <...> | REFUTE_IF: <...> | COST: low|medium|high"""
+TEST: <...> | CONFIRM_IF: <...> | REFUTE_IF: <...> | DISCRIMINATES_FROM: <...> | INFERENTIAL_STANDARD: <...> | COST: low|medium|high"""
 
 IDEA_COMPLETER = COMMON_RUBRIC + """
 
@@ -205,12 +208,17 @@ Checklist:
 - Make the idea understandable as a candidate theory/research program.
 - If multiple completions are possible, choose the most coherent and testable version.
 - Name the weakest link that most needs proof, simulation, or experiment.
+- After the main tail, emit one ASSUMPTION line per identified assumption.
+- Each assumption has a status: standard (well-established background), contested (disputed in the field), or novel_load_bearing (new and required for the main claim).
 
 ARTIFACT:
 {artifact}
 
 End with exactly:
-COMPLETION_STATUS: incomplete|completed_candidate|polished_research_plan | COMPLETED_IDEA: <...> | MECHANISM: <...> | ASSUMPTIONS: <comma-separated assumptions|none> | WEAKEST_LINK: <claim_id or description>"""
+COMPLETION_STATUS: incomplete|completed_candidate|polished_research_plan | COMPLETED_IDEA: <...> | MECHANISM: <...> | WEAKEST_LINK: <claim_id or description>
+
+Then one line per assumption, exactly:
+ASSUMPTION: <text> | STATUS: standard|contested|novel_load_bearing"""
 
 THEORY_BRIDGE = COMMON_RUBRIC + """
 
@@ -237,7 +245,6 @@ Checklist:
 - Explain similarity and difference separately.
 - State exactly what is new if the completion is right.
 - List works/theories that must be cited or discussed.
-- If prior art is missing, say what kind of prior art should be searched for next.
 
 ARTIFACT:
 {artifact}

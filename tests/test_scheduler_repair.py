@@ -35,8 +35,9 @@ BASE = {
     ),
     "completer": (
         "COMPLETION_STATUS: completed_candidate | COMPLETED_IDEA: completed x | "
-        "MECHANISM: x causes y under stated assumptions | ASSUMPTIONS: a1, a2 | "
-        "WEAKEST_LINK: c1"
+        "MECHANISM: x causes y under stated assumptions | WEAKEST_LINK: c1\n"
+        "ASSUMPTION: a1 | STATUS: standard\n"
+        "ASSUMPTION: a2 | STATUS: standard"
     ),
     "theory_bridge": (
         "THEORY_FAMILY: field theory | NEAREST_THEORIES: prior model, analogy | "
@@ -63,9 +64,9 @@ BASE = {
         "FAIR_SUMMARY: promising but unvalidated"
     ),
     "predictor": (
-        "OBSERVABLE: o | EFFECT_SIZE: 2x | DISCRIMINATES_FROM: null | MEASURABLE: yes"
+        "OBSERVABLE: o | EFFECT_SIZE: 2x | DISCRIMINATES_FROM: null | MEASURABLE: yes | DETECTABLE: yes"
     ),
-    "validation_designer": "TEST: t | CONFIRM_IF: c | REFUTE_IF: r | COST: low",
+    "validation_designer": "TEST: t | CONFIRM_IF: c | REFUTE_IF: r | DISCRIMINATES_FROM: prior model | INFERENTIAL_STANDARD: p=0.05 | COST: low",
     "arbiter": "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: t",
     "prover": "DERIVATION: complete | GAPS: none | FATAL_GAP: no",
 }

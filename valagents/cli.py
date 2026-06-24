@@ -104,10 +104,17 @@ def render_report(art, refs=None) -> str:
             art.completion.completed_idea,
             "",
             f"**Mechanism:** {art.completion.mechanism}",
-            f"**Assumptions:** {', '.join(art.completion.assumptions) or 'none'}",
             f"**Weakest link:** {art.completion.weakest_link}",
             "",
         ]
+        if art.completion.assumptions:
+            lines.append("### Assumptions")
+            for assumption in art.completion.assumptions:
+                if assumption.status == "novel_load_bearing":
+                    lines.append(f"- ⚠ rests on a novel, load-bearing assumption: {assumption.text}")
+                else:
+                    lines.append(f"- [{assumption.status}] {assumption.text}")
+            lines.append("")
     if art.theory_bridge:
         bridge = art.theory_bridge
         lines += [
@@ -168,6 +175,15 @@ def render_report(art, refs=None) -> str:
             f"**Fair summary:** {obj.fair_summary}",
             "",
         ]
+    if art.predictions:
+        lines.append("## Predictions")
+        for pred in art.predictions:
+            lines.append(
+                f"- {pred.observable} (effect: {pred.effect_size}; "
+                f"discriminates from: {pred.discriminates_from or 'n/a'}; "
+                f"measurable: {pred.measurable}; detectable: {pred.detectable})"
+            )
+        lines.append("")
     if art.validation_plan:
         plan = art.validation_plan
         lines += [
@@ -175,6 +191,8 @@ def render_report(art, refs=None) -> str:
             f"- {plan.decisive_test}",
             f"- confirm if: {plan.confirm_if}",
             f"- refute if: {plan.refute_if}",
+            f"- discriminates from: {plan.discriminates_from or 'n/a'}",
+            f"- inferential standard: {plan.inferential_standard or 'n/a'}",
             f"- cost: {plan.cost}",
             "",
         ]

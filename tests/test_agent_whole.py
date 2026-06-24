@@ -10,9 +10,10 @@ FC = FormalClaim(statement="escape time falls with curl term", falsifiable=True)
 
 @pytest.mark.asyncio
 async def test_predict(cfg):
-    body = "OBSERVABLE: mean escape time | EFFECT_SIZE: 2x faster | DISCRIMINATES_FROM: vanilla GD | MEASURABLE: yes"
+    body = "OBSERVABLE: mean escape time | EFFECT_SIZE: 2x faster | DISCRIMINATES_FROM: vanilla GD | MEASURABLE: yes | DETECTABLE: yes"
     preds = await predict(FC, Novelty(delta="rotational term"), FakeLLM(lambda a, m: body), cfg)
     assert preds[0].measurable is True and "escape" in preds[0].observable
+    assert preds[0].detectable == "yes"
 
 
 @pytest.mark.asyncio
@@ -31,10 +32,13 @@ async def test_red_team_records_surface_and_landed(cfg):
 @pytest.mark.asyncio
 async def test_design_validation(cfg):
     body = ("TEST: escape-time benchmark | CONFIRM_IF: scaling separates | "
-            "REFUTE_IF: no separation | COST: low")
+            "REFUTE_IF: no separation | DISCRIMINATES_FROM: vanilla GD | "
+            "INFERENTIAL_STANDARD: n=100 p=0.05 | COST: low")
     art = IdeaArtifact(raw_idea="s", formal_claim=FC)
     plan = await design_validation(art, FakeLLM(lambda a, m: body), cfg)
     assert plan.cost == "low" and "benchmark" in plan.decisive_test
+    assert plan.discriminates_from == "vanilla GD"
+    assert "p=0.05" in plan.inferential_standard
 
 
 @pytest.mark.asyncio

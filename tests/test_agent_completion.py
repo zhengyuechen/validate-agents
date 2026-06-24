@@ -20,11 +20,17 @@ ART = IdeaArtifact(
 async def test_complete_idea(cfg):
     body = (
         "COMPLETION_STATUS: completed_candidate | COMPLETED_IDEA: x changes y by mechanism m | "
-        "MECHANISM: m links x to y | ASSUMPTIONS: a1, a2 | WEAKEST_LINK: c1"
+        "MECHANISM: m links x to y | WEAKEST_LINK: c1\n"
+        "ASSUMPTION: a1 | STATUS: standard\n"
+        "ASSUMPTION: a2 | STATUS: contested"
     )
     out = await complete_idea(ART, FakeLLM(lambda a, m: body), cfg)
     assert out.status == "completed_candidate"
-    assert out.assumptions == ["a1", "a2"]
+    assert len(out.assumptions) == 2
+    assert out.assumptions[0].text == "a1"
+    assert out.assumptions[0].status == "standard"
+    assert out.assumptions[1].text == "a2"
+    assert out.assumptions[1].status == "contested"
     assert out.weakest_link == "c1"
 
 

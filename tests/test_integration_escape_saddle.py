@@ -59,7 +59,7 @@ def router(agent, messages):
     if agent == "predictor":
         return (
             "OBSERVABLE: mean escape time | EFFECT_SIZE: separates from GD | "
-            "DISCRIMINATES_FROM: GD/momentum | MEASURABLE: yes"
+            "DISCRIMINATES_FROM: GD/momentum | MEASURABLE: yes | DETECTABLE: yes"
         )
     if agent == "redteam":
         return (
@@ -70,7 +70,8 @@ def router(agent, messages):
     if agent == "validation_designer":
         return (
             "TEST: synthetic-saddle escape-time vs GD/momentum/Curl-Descent | "
-            "CONFIRM_IF: scaling separates | REFUTE_IF: no separation | COST: low"
+            "CONFIRM_IF: scaling separates | REFUTE_IF: no separation | "
+            "DISCRIMINATES_FROM: Curl-Descent | INFERENTIAL_STANDARD: p=0.05 n=100 | COST: low"
         )
     if agent == "arbiter":
         return "STATUS: needs_experiment | LOAD_BEARING: B | DECISIVE_TEST: escape-time benchmark"

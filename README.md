@@ -35,7 +35,7 @@ Agents run over a claim DAG derived from the seed idea:
 
 ## Status
 
-Spec 1 implementation is active, with the web UI and validation artifact browser in place. Current local verification: 106 tests passing.
+Spec 1 implementation is active, with the web UI and validation artifact browser in place. The full deterministic test suite passes (no network).
 
 ## Layout
 
