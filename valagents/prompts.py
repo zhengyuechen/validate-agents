@@ -77,3 +77,21 @@ ARTIFACT:
 {artifact}
 End with exactly:
 TEST: <…> | CONFIRM_IF: <…> | REFUTE_IF: <…> | COST: low|medium|high"""
+
+REPAIRER = """An attack landed or a derivation gap was found. Propose a targeted repair to the named \
+sub-claims — a new version, not a rewrite of what already passed. Do not weaken the claim to dodge the \
+attack; fix the mechanism.
+ARTIFACT:
+{artifact}
+TARGETS: {targets}
+End with exactly:
+REPAIR: <what changed> | TARGETS: <claim_ids> | RATIONALE: <…>"""
+
+ARBITER = """Given the per-claim statuses, attack verdicts, and novelty delta, do not re-argue any of \
+them. State the load-bearing claim and the single decisive test. (The system computes STATUS itself; \
+your STATUS line is a cross-check.)
+ARTIFACT:
+{artifact}
+COMPUTED STATUS: {computed_status}
+End with exactly:
+STATUS: <…> | LOAD_BEARING: <claim_id> | DECISIVE_TEST: <…>"""
