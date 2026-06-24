@@ -203,49 +203,77 @@ def _converged_monotone(seq, rtol):
         return False
     return mags[-1] / abs(last) < rtol
 
+def _trajectory_converges(div_levels, conv_rtol, np, n_samples=5):
+    """§3d — is the pre-overflow trajectory dt-converged? THE divergence discriminator (B-D8): t*-convergence
+    alone is NOT sufficient (a deep-unstable stiff instability has a converging t_of too). div_levels: list of
+    (traj, overflow_step, dt_k), one per refinement level (all overflowed). A real singularity's solution tracks
+    the true solution up to the blow-up, so the across-refinement state magnitudes AGREE at any fixed pre-overflow
+    time; a stiff artifact's path is dt-divergent garbage, orders of magnitude apart. Sample the state magnitude
+    at several t_s spread across (0, t_edge] (t_edge = earliest overflow time; bias toward the edge — NEVER a
+    single early point, where stiff refinements still sit near x0 and spuriously agree). Converged at EVERY t_s
+    -> True (real); diverges at any -> False (artifact). Errs toward False (uncertain) when coarse levels disagree."""
+    t_edge = min(ov * h for (_, ov, h) in div_levels)
+    if t_edge <= 0:
+        return False
+    for i in range(1, n_samples + 1):
+        t_s = (0.9 * i / n_samples) * t_edge                 # fractions up to 0.9*t_edge, biased toward the edge
+        mags = []
+        for (traj, ov, h) in div_levels:
+            idx = min(int(round(t_s / h)), ov - 1)           # clamp into the finite prefix [0, ov-1]
+            mags.append(float(np.max(np.abs(traj[idx]))))
+        mmax = max(abs(m) for m in mags)
+        if mmax <= 0.0:
+            continue                                         # all zero here -> trivially agree
+        if (max(mags) - min(mags)) / mmax >= conv_rtol:      # disagree at this t_s -> dt-divergent path
+            return False
+    return True
+
 def _bounded_observe(rhs_exprs, var_index, env_base, y0, n_steps, dt, observable, bound, t_end,
                      max_halvings, conv_rtol, per_refine_max_steps, np, npfuncs):
     """§3 honesty check for ONE grid point of a bounded claim (max_abs, op='le', threshold=bound).
     Returns (verdict, info, steps_used). verdict in {'bounded','unbounded','uncertain'}. A refuting point
-    (overflow OR finite max_abs>bound) refutes ONLY if its refuting quantity converges monotone+shrinking
-    (and, for a divergence, t* is non-receding and strictly inside the window). Anything else -> uncertain.
-    Raises propagate -> uncertain upstream. Deterministic: fixed dt->dt/2 sequence; integer step budget."""
+    (overflow OR finite max_abs>bound) refutes ONLY if its refuting quantity converges monotone+shrinking; a
+    DIVERGENCE additionally requires t* strictly inside the window (§3b) AND a dt-converged pre-overflow
+    trajectory (§3d — t*-convergence alone is insufficient, B-D8). Anything else -> uncertain. Raises propagate
+    -> uncertain upstream. Deterministic: fixed dt->dt/2 sequence; integer step budget."""
     def classify(ns, h):
         traj, overflow = _rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, ns, h, np, npfuncs)
         if overflow is not None:
-            return "div", overflow * h
+            return "div", overflow * h, (traj, overflow, h)
         m = _extract_observable(traj, var_index, observable, np)
-        return ("breach", m) if m > bound else ("bounded", m)
+        return (("breach", m, None) if m > bound else ("bounded", m, None))
 
     steps_used = n_steps
-    kind, q0 = classify(n_steps, dt)
+    kind, q0, lvl0 = classify(n_steps, dt)
     if kind == "bounded":
         return "bounded", {"max_abs": q0, "t_star": None, "refinements": 0}, steps_used
     seq = [q0]
+    div_levels = [lvl0] if kind == "div" else []
     for k in range(1, max_halvings + 1):
         n_k = n_steps * (2 ** k)
         if n_k > per_refine_max_steps:
             return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None,
                                  "refinements": k - 1}, steps_used
         steps_used += n_k
-        rk, rq = classify(n_k, dt / (2 ** k))
+        rk, rq, lvl = classify(n_k, dt / (2 ** k))
         if rk == "bounded":                                  # refutation vanished under refinement -> artifact
             note = q0 if kind == "breach" else "diverged_unconfirmed"
             return "uncertain", {"max_abs": note, "t_star": None, "refinements": k}, steps_used
         if rk != kind:                                       # divergence<->breach morph -> receding -> artifact
             return "uncertain", {"max_abs": "morph_unconfirmed", "t_star": None, "refinements": k}, steps_used
         seq.append(rq)
+        if kind == "div":
+            div_levels.append(lvl)
     refs = len(seq) - 1
     if kind == "div":
-        # Finding A: rely on _converged_monotone (its shrinking test already rejects a receding t_of) + the §3b
-        # window guard. A "seq[-1] <= seq[0]" clause would assume t_of approaches t* FROM ABOVE and would
-        # false-uncertain a genuine singularity whose numerical t_of converges from below — drop it.
-        converged = (_converged_monotone(seq, conv_rtol)
-                     and seq[-1] < t_end * (1.0 - conv_rtol))               # §3b: t* strictly inside the window
-        if converged:
-            return "unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": refs}, steps_used
-        return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used
-    # kind == "breach"
+        # B-D8: t*-convergence (necessary) + §3b window + §3d pre-overflow trajectory convergence (sufficient).
+        # NO "seq[-1] <= seq[0]" clause (finding A stands; the deep-unstable case has DECREASING t_of anyway).
+        if not (_converged_monotone(seq, conv_rtol) and seq[-1] < t_end * (1.0 - conv_rtol)):
+            return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used
+        if not _trajectory_converges(div_levels, conv_rtol, np):            # §3d: stiff artifact -> uncertain
+            return "uncertain", {"max_abs": "trajectory_unconverged", "t_star": seq[-1], "refinements": refs}, steps_used
+        return "unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": refs}, steps_used
+    # kind == "breach" (no §3d needed: the converged quantity is the physical max_abs, no proxy)
     if _converged_monotone(seq, conv_rtol) and seq[-1] > bound:
         return "unbounded", {"max_abs": seq[-1], "t_star": None, "refinements": refs}, steps_used
     return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used

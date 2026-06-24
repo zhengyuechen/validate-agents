@@ -246,18 +246,28 @@ def test_bounded_observe_confirmed_divergence_refutes():
     assert verdict == "unbounded" and info["max_abs"] == "diverged"
     assert 0.9 < info["t_star"] < 1.1
 
-def test_bounded_observe_stiff_artifact_uncertain():
-    # x' = -lam*x with base dt*lam above the RK4 stability boundary (~2.78): numerically unstable but TRULY
-    # bounded. Either a finer dt becomes bounded, or t_of recedes -> NOT a refutation.
-    # lam=200, dt=0.02 -> lam*dt=4.0 > 2.78 (unstable); halving once: lam*(dt/2)=2.0 < 2.78 (stable).
-    # Base diverges (kind="div"); first refinement is bounded -> "diverged_unconfirmed" -> uncertain.
+def test_bounded_observe_near_boundary_stiff_uncertain():
+    # NEAR-BOUNDARY regime: x'=-200x, dt=0.02 -> dt*lam=4.0 (unstable); dt/2 -> 2.0 (<2.78, stable) so a finer
+    # refinement is BOUNDED -> the "BOUNDED at a refinement" escape -> uncertain. Truly bounded decay.
     verdict, info, steps = _bounded({"x": "-200.0*x"}, ["x"], {}, [1.0], 200, 0.02, bound=2.0, t_end=4.0)
-    assert verdict == "uncertain"           # the load-bearing soundness test: stiff != divergent
+    assert verdict == "uncertain"
+
+def test_bounded_observe_deep_unstable_stiff_uncertain():
+    # DEEP-UNSTABLE regime (THE regression test for the t*-vs-trajectory hole, B-D8): x'=-1000x, dt=0.05 ->
+    # dt*lam=50, and 50/2^3=6.25 > 2.78 -> unstable at EVERY refinement, so it overflows at every level and
+    # t_of=[0.95,0.625,0.4375,0.40] CONVERGES (t*-convergence alone would FALSE-REFUTE). But the pre-overflow
+    # trajectory is dt-DIVERGENT garbage -> §3d fails -> uncertain. x'=-1000x is a pure decay: TRULY bounded.
+    verdict, info, steps = _bounded({"x": "-1000.0*x"}, ["x"], {}, [1.0], 100, 0.05, bound=2.0, t_end=5.0)
+    assert verdict == "uncertain" and info["max_abs"] == "trajectory_unconverged"   # caught by §3d, not §3a/§3b
 
 def test_bounded_observe_tstar_near_tend_uncertain():
-    # same x'=x^2 singularity at t*=1, but t_span ends right at ~1 -> t* within conv_rtol of t_end -> uncertain
-    verdict, info, steps = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 1000, 0.001, bound=10.0, t_end=1.0)
+    # x'=x^2 singularity at t*=1; t_end=1.05 so it DOES overflow inside the window (kind="div") but t*~=1.0 is
+    # within conv_rtol of t_end (1.0 > 0.9*1.05=0.945) -> the §3b div gate fires -> uncertain (NOT the breach path).
+    verdict, info, steps = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 1050, 0.001, bound=10.0, t_end=1.05)
     assert verdict == "uncertain"
+    # control: a wider window puts t* well inside -> refutes (proves the gate, not a blanket uncertain)
+    v2, i2, _ = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 2000, 0.001, bound=10.0, t_end=2.0)
+    assert v2 == "unbounded"
 
 def test_bounded_observe_budget_exhausted_uncertain():
     # a refuting (diverging) point but per_refine_max_steps too small to take >=2 refinements -> budget exhausted
