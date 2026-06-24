@@ -84,14 +84,29 @@ class AtomicClaim(BaseModel):
     checks: list[CheckRecord] = []
     exhausted: bool = False
 
+    def _math_grounder_uncertainty_is_nonblocking(self, check: CheckRecord) -> bool:
+        if self.type != "mathematical" or check.lens != "grounder":
+            return False
+        basis = (check.basis or "").strip().upper()
+        return not basis.startswith(("CONTRADICTION:", "COUNTEREXAMPLE:", "REFUTES:"))
+
     @computed_field
     @property
     def status(self) -> str:
         if any(c.verdict == "fail" for c in self.checks):
             return "fail"
-        if any(c.verdict == "uncertain" for c in self.checks):
+        uncertainties = [c for c in self.checks if c.verdict == "uncertain"]
+        passes = [c for c in self.checks if c.verdict == "pass" and c.independent_sources >= 1]
+        if uncertainties:
+            has_proof_pass = any(c.lens == "prover" for c in passes)
+            if (
+                self.type == "mathematical"
+                and has_proof_pass
+                and all(self._math_grounder_uncertainty_is_nonblocking(c) for c in uncertainties)
+            ):
+                return "pass"
             return "uncertain"
-        if any(c.verdict == "pass" and c.independent_sources >= 1 for c in self.checks):
+        if passes:
             return "pass"
         return "pending"
 

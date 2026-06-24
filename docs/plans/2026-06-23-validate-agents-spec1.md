@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Grow one seed idea into a fully-populated, check-hardened `IdeaArtifact` that terminates in exactly one of `internally_validated` / `needs_experiment` / `refuted`, with every verdict a parsed field and "validated" gated on a survived external, independent check.
+**Goal:** Grow one seed idea into a fully-populated, check-hardened `IdeaArtifact` that terminates in exactly one of `internally_validated` / `needs_experiment` / `refuted`, with every verdict a parsed field and "validated" gated on a survived independent check.
 
 **Architecture:** A `valagents/` package whose infra modules (LLM client, run-log, web-search, the `parse_label` regex) are already present, plus new domain code: a Pydantic `IdeaArtifact`/`AtomicClaim` schema whose `status`/`maturity`/`load_bearing`/`blocker` are **computed properties with no setter** (the gate is code, never an LLM), eleven thin agent functions each ending in a strict machine-readable tail, a single-writer append-only `ArtifactStore` with an immutable version chain, and a DAG scheduler that runs entry gates → per-claim lenses → fan-out → repair-versioning → a total verdict.
 
@@ -10,12 +10,14 @@
 
 **Source spec:** `docs/2026-06-23-validate-agents-design.md` (rev 3). Section references below (e.g. "§2.1") point at it.
 
+> **Rev-3 semantic update:** Older task snippets in this plan may still show the original fail-closed wording (`not_falsifiable`/`unfaithful_*`/`ill_formed`/fatal attacks -> `refuted`, and Prover pass as general external support). The implemented rule is stricter about falsity: entry-gate failures and non-explicit fatal objections terminate as `needs_experiment`; only explicit failing checks (`CONTRADICTION:`, `COUNTEREXAMPLE:`, or `REFUTES:`) produce `refuted`. Grounder absence of support is `uncertain`, not false. Complete Prover derivations can independently pass definitional/mathematical claims; empirical/mechanistic claims still require external grounding.
+
 ## Global Constraints
 
 Every task's requirements implicitly include this section. Values are verbatim from the spec.
 
 - **I1 — verdicts gate, not narrate.** `IdeaArtifact.status`, `.maturity`, `.load_bearing`, `.blocker` and `AtomicClaim.status` are `@computed_field` **read-only properties**. No code path and no LLM ever assigns them. An agent's emitted `STATUS:` line is a cross-check only; on disagreement the computed value wins and the mismatch is logged.
-- **I2 — validated = survived an external, independent check.** `internally_validated` is reachable only when every load-bearing claim is strictly `pass`, and a claim is `pass` only if it has a `CheckRecord` with `verdict == "pass"` **and `independent_sources >= 1`**. `pending` is never `pass`.
+- **I2 — validated = survived an independent check.** `internally_validated` is reachable only when every load-bearing claim is strictly `pass`, and a claim is `pass` only if it has a `CheckRecord` with `verdict == "pass"` **and `independent_sources >= 1`**. Empirical/mechanistic claims require external grounding; definitional/mathematical claims may pass on complete Prover derivation. `pending` is never `pass`.
 - **I3 — the gate is total.** Every run ends in `internally_validated` / `needs_experiment` / `refuted`. `draft` is **non-terminal** — the scheduler never stops in `draft`.
 - **`maturity` ⊥ `status`.** The `status` computation must not read `maturity`. Dependency is one-directional: `{verdict set, status} → maturity → report`.
 - **Status string constants** (lowercase): `"draft"`, `"internally_validated"`, `"needs_experiment"`, `"refuted"`. Claim statuses: `"pass"`, `"fail"`, `"uncertain"`, `"pending"`.
@@ -530,15 +532,15 @@ def test_internally_validated():
 # --- entry gates (I3) ---
 def test_not_falsifiable():
     a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
-    assert a.status == "refuted" and a.blocker["reason"] == "not_falsifiable"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "not_falsifiable"
 
 def test_unfaithful_drift_after_retry():
     a = art(faithfulness=Faithfulness(verdict="no", retried=True))
-    assert a.status == "refuted" and a.blocker["reason"] == "unfaithful_drift"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "unfaithful_drift"
 
 def test_unfaithful_narrowed_after_retry():
     a = art(faithfulness=Faithfulness(verdict="narrowed", retried=True))
-    assert a.status == "refuted" and a.blocker["reason"] == "unfaithful_narrowed"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "unfaithful_narrowed"
 
 def test_faithfulness_none_cannot_validate():        # the SPOF-in-code test (rev 3)
     a = art(faithfulness=None)
@@ -546,7 +548,7 @@ def test_faithfulness_none_cannot_validate():        # the SPOF-in-code test (re
 
 def test_empty_graph_ill_formed():
     a = art(claim_graph=[])
-    assert a.status == "refuted" and a.blocker["reason"] == "ill_formed"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "ill_formed"
 
 # --- refutation ---
 def test_failed_claim():
@@ -555,7 +557,7 @@ def test_failed_claim():
 
 def test_fatal_attack_landed():
     a = art(attacks=[Attack(type="counterexample", severity="fatal", status="landed", target_claim_id="c1")])
-    assert a.status == "refuted" and a.blocker["reason"] == "attacked"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "severe_objection"
 
 # --- needs_experiment ---
 def test_uncertain_claim():
@@ -584,10 +586,10 @@ def test_minor_landed_still_validates():
     assert a.status == "internally_validated"
 
 # --- repair-cap exhaustion (D5) ---
-def test_repair_cap_exhaustion_refuted():
+def test_repair_cap_exhaustion_needs_experiment():
     a = art(repairs_spent=3, repair_cap=3,
             attacks=[Attack(type="counterexample", severity="fatal", status="landed")])
-    assert a.status == "refuted"
+    assert a.status == "needs_experiment"
 
 # --- non-terminal draft (I3: scheduler keeps going) ---
 def test_draft_when_unfinalized_pending():
@@ -652,7 +654,7 @@ class IdeaArtifact(BaseModel):
             return True
         return len(set(s.attempted)) < self.min_attack_categories
 
-    def _has_independent_external_check(self, c: AtomicClaim) -> bool:
+    def _has_independent_check(self, c: AtomicClaim) -> bool:
         return any(ck.verdict == "pass" and ck.independent_sources >= 1 for ck in c.checks)
 
     def _b(self, reason: str, claim_id: str | None = None) -> dict:
@@ -662,21 +664,21 @@ class IdeaArtifact(BaseModel):
         rs = self.root_ancestors()
         # ===== ENTRY GATES =====
         if self.formal_claim and not self.formal_claim.falsifiable:
-            return REFUTED, self._b("not_falsifiable")
+            return NEEDS_EXPERIMENT, self._b("not_falsifiable")
         if self.faithfulness and self.faithfulness.retried and self.faithfulness.verdict == "no":
-            return REFUTED, self._b("unfaithful_drift")
+            return NEEDS_EXPERIMENT, self._b("unfaithful_drift")
         if self.faithfulness and self.faithfulness.retried and self.faithfulness.verdict == "narrowed":
-            return REFUTED, self._b("unfaithful_narrowed")
+            return NEEDS_EXPERIMENT, self._b("unfaithful_narrowed")
         if (self.formal_claim and self.faithfulness and self.faithfulness.verdict == "yes"
                 and not self.claim_graph and self.finalized):
-            return REFUTED, self._b("ill_formed")
+            return NEEDS_EXPERIMENT, self._b("ill_formed")
         # ===== REFUTATION =====
         for c in rs:
             if c.status == "fail":
                 return REFUTED, self._b("failed", c.id)
         if self._landed("fatal"):
             a = next(a for a in self.attacks if a.status == "landed" and a.severity == "fatal")
-            return REFUTED, self._b("attacked", a.target_claim_id)
+            return NEEDS_EXPERIMENT, self._b("severe_objection", a.target_claim_id)
         # ===== NEEDS EXPERIMENT =====
         for c in rs:
             if c.status == "uncertain":
@@ -944,7 +946,7 @@ Establishes the agent pattern in full. Every later agent reuses `build_messages`
 **Interfaces:**
 - Produces:
   - `prompts.py`: string templates, one per agent (see below), each ending with its mandatory tail.
-  - `agents/base.py`: `build_messages(system: str, user: str) -> list[dict]`; `map_support_to_verdict(support: str, independent_sources: int) -> str` (the D8 downgrade: `"supported"` + `independent_sources<1` → `"uncertain"`; `"unsupported"`→`"fail"`; else `"uncertain"`/`"supported"→"pass"`); `as_int(s: str, default=0) -> int`.
+  - `agents/base.py`: `build_messages(system: str, user: str) -> list[dict]`; `map_support_to_verdict(support: str, independent_sources: int) -> str` (the D8 downgrade: `"supported"` + `independent_sources<1` → `"uncertain"`; `"unsupported"`→`"uncertain"`; else `"uncertain"`/`"supported"→"pass"`); `as_int(s: str, default=0) -> int`.
   - `agents/formalizer.py`: `async formalize(raw_idea: str, llm, cfg) -> FormalClaim | None` (None on double parse failure).
 
 - [ ] **Step 1: Write failing tests** `tests/test_agent_formalizer.py`:
@@ -972,7 +974,7 @@ async def test_formalizer_double_fail_returns_none(cfg):
 def test_support_downgrade_without_independent_source():
     assert map_support_to_verdict("supported", 0) == "uncertain"   # D8
     assert map_support_to_verdict("supported", 2) == "pass"
-    assert map_support_to_verdict("unsupported", 5) == "fail"
+    assert map_support_to_verdict("unsupported", 5) == "uncertain"
 ```
 
 - [ ] **Step 2: Run → FAIL.** `pytest tests/test_agent_formalizer.py -v`
@@ -1539,13 +1541,13 @@ async def test_arbiter_agrees_with_computed(cfg):
     assert out["agrees"] is True
 
 async def test_arbiter_disagreement_flagged_computed_wins(cfg):
-    # Arbiter narrates validated, but a fatal attack means computed == refuted
+    # Arbiter narrates validated, but a fatal attack means computed == needs_experiment
     from valagents.artifact import Attack
     art = validated_art()
     art.attacks = [Attack(type="counterexample", severity="fatal", status="landed", target_claim_id="c1")]
     body = "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: x"
     out = await arbitrate(art, FakeLLM(lambda a, m: body), cfg)
-    assert art.status == "refuted" and out["agrees"] is False   # computed wins; mismatch surfaced
+    assert art.status == "needs_experiment" and out["agrees"] is False   # computed wins; mismatch surfaced
 ```
 
 - [ ] **Step 2: Run → FAIL.**
@@ -1651,16 +1653,16 @@ async def test_not_falsifiable_terminates(cfg):
     s = store()
     llm = FakeLLM(router({"formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: no"}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
-    assert proceed is False and s.current.status == "refuted" and s.current.blocker["reason"] == "not_falsifiable"
+    assert proceed is False and s.current.status == "needs_experiment" and s.current.blocker["reason"] == "not_falsifiable"
 
-async def test_unfaithful_retries_then_refuted(cfg):
+async def test_unfaithful_retries_then_needs_experiment(cfg):
     s = store()
     llm = FakeLLM(router({
         "formalizer": "CLAIM: narrow x | VARIABLES: n | REGIME: any | FALSIFIABLE: yes",
         "faithfulness": "FAITHFUL: narrowed | BACK_TRANSLATION: only a special case",
         "decomposer": "CLAIM: A | TYPE: empirical | DEPENDS_ON: none | STATEMENT: s"}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
-    assert proceed is False and s.current.status == "refuted"
+    assert proceed is False and s.current.status == "needs_experiment"
     assert s.current.blocker["reason"] == "unfaithful_narrowed" and s.current.faithfulness.retried is True
 
 async def test_empty_decomposition_ill_formed(cfg):
@@ -1670,7 +1672,7 @@ async def test_empty_decomposition_ill_formed(cfg):
         "faithfulness": "FAITHFUL: yes | BACK_TRANSLATION: same",
         "decomposer": "no rows here"}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
-    assert proceed is False and s.current.status == "refuted" and s.current.blocker["reason"] == "ill_formed"
+    assert proceed is False and s.current.status == "needs_experiment" and s.current.blocker["reason"] == "ill_formed"
 
 async def test_clean_entry_proceeds(cfg):
     s = store()
@@ -1886,13 +1888,13 @@ async def test_full_run_internally_validated(cfg):
     art = await run("seed", scripted(script), cfg)
     assert art.status == "internally_validated"
 
-async def test_fatal_attack_through_cap_refuted(cfg):
+async def test_fatal_attack_through_cap_needs_experiment(cfg):
     script = dict(BASE)
     script["grounder"] = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 2 | SOURCES: A1,A2 | BASIS: ok\nCLOSEST_PRIOR: p | DELTA: d | POSITION: new"
     script["redteam"] = "ATTEMPTED: counterexample, magnitude\nATTACK: counterexample | SEVERITY: fatal | STATUS: landed | TARGET: c1 | BASIS: breaks"
     script["repairer"] = "REPAIR: tried | TARGETS: c1 | RATIONALE: attempt"
     art = await run("seed", scripted(script), cfg)
-    assert art.status == "refuted" and art.repairs_spent == cfg.gate.repair_cap
+    assert art.status == "needs_experiment" and art.repairs_spent == cfg.gate.repair_cap
 
 async def test_thin_surface_needs_experiment(cfg):
     script = dict(BASE)
@@ -1964,7 +1966,7 @@ async def run(raw_idea: str, llm, cfg, backend=None) -> IdeaArtifact:
     return store.current
 ```
 
-Implementer note: the loop re-forks while landed fatal/major attacks remain. When the cap is hit with a fatal attack still landed, the loop exits and `finalized=True` makes the gate compute `refuted` (D5) — no special-case code. Confirm `test_fatal_attack_through_cap_refuted` asserts exactly this.
+Implementer note: the loop re-forks while landed fatal/major attacks remain. When the cap is hit with a fatal attack still landed, the loop exits and `finalized=True` makes the gate compute `needs_experiment`/`severe_objection` unless an explicit failing check exists (D5) — no special-case code. Confirm `test_fatal_attack_through_cap_needs_experiment` asserts exactly this.
 
 - [x] **Step 4: Run → PASS.** `pytest tests/test_scheduler_repair.py -v` → 3 passed. Run the full suite: `pytest -q`.
 

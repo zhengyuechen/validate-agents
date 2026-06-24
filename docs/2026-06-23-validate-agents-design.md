@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-23
 - **Status:** Approved design (rev 2 — incorporates the green-light gate review *and* the faithfulness / circularity / teeth / entailment review), pending implementation plan
-- **Goal in one line:** Grow a single seed idea from a one-liner into a fully-populated, check-hardened `IdeaArtifact`, terminating in exactly one of three honest verdicts — `internally_validated` (the claim the seed actually asked, every dependency externally and independently checked), `needs_experiment`, or `refuted` — and never in a fourth, undefined state.
+- **Goal in one line:** Grow a single seed idea from a one-liner into a fully-populated, check-hardened `IdeaArtifact`, terminating in exactly one of three honest verdicts — `internally_validated` (the claim the seed actually asked, every dependency independently checked), `needs_experiment`, or `refuted` — and never in a fourth, undefined state.
 
 This is the **depth-first complement** to breadth-first, tournament-style hypothesis generation. That approach fans one goal into many hypotheses and selects a winner via ranking. validate-agents inverts it: **one seed, progressively specified, checked, and hardened into a single complete artifact.** "Validation" is really *maturation under check* — completing the idea while verifying it survives at every level of completion.
 
@@ -30,7 +30,7 @@ Spec 1 is single-worker, but every scheduler interface (ready-frontier, verdict 
 | # | Invariant | Enforcement in Spec 1 |
 |---|---|---|
 | **I1** | **Verdicts gate, not narrate.** | `status` / `maturity` / `load_bearing` / `blocker` are Pydantic `@computed_field` properties with **no setter**. No LLM ever writes them. The Arbiter emits a `STATUS:` line, but that is a *cross-check* compared-and-logged against the computed value — the code is the source of truth. A mismatch is logged as a bug signal; the computed value always wins. |
-| **I2** | **"Validated" = survived an external, independent check.** | `internally_validated` is structurally unreachable unless every root-ancestor claim is *strictly* `pass`, and `pass` requires ≥1 external `CheckRecord` **with `independent_sources ≥ 1`**. `pending` is **never** `pass`. `refuted` and `needs_experiment` are first-class, tested outcomes. |
+| **I2** | **"Validated" = survived an independent check.** | `internally_validated` is structurally unreachable unless every root-ancestor claim is *strictly* `pass`, and `pass` requires ≥1 independent source/check. Empirical and mechanistic claims require external grounding; definitional and mathematical claims may pass on a complete Prover derivation. `pending` is **never** `pass`. `refuted` and `needs_experiment` are first-class, tested outcomes. |
 | **I3** | **The gate is total.** | Every run terminates in exactly one of `{internally_validated, needs_experiment, refuted}`. `draft` is **strictly non-terminal**. Every edge case (un-falsifiable entry, unfaithful formalization, empty/degenerate decomposition, decomposition gap, thin attack surface, coverage gap, repair-cap exhaustion, double parse failure, landed non-fatal attack) maps deterministically to one of the three. No fourth state a reader rounds up to "validated." |
 
 ### A total gate is necessary but **not sufficient**
@@ -44,7 +44,7 @@ Totality guarantees every run ends honestly. It does **not** guarantee the gate 
 | **Independence** — support isn't circular | "three sources" are the same author/group; novelty/support inflated on self-citation | `CheckRecord.sources`/`independent_sources` + Grounder ≥1-independent rule (§2, §3) |
 | **Teeth** — a real attack surface was tried | "survived one weak attack" indistinguishable from "survived all four categories"; pass things by attacking weakly | Red-team `attempted` set + thin-surface cap (§2.1, §3) |
 
-> **Honest Spec-1 caveat (the reasoned-not-executed line).** With no sandbox, the Red-team's mandatory **magnitude check** is *reasoned*, not executed. When that check is the crux, the Validation-designer emits it as the decisive computation and the gate lands at `needs_experiment` — never `internally_validated`. Spec 2 promotes the magnitude check to an executed lens. Spec 1's `internally_validated` therefore means precisely: *survived live web-grounding + adversarial red-team + derivation, on independent support, for the faithfully-pinned claim* — and nothing stronger.
+> **Honest Spec-1 caveat (the reasoned-not-executed line).** With no sandbox, the Red-team's mandatory **magnitude check** is *reasoned*, not executed. When that check is the crux, the Validation-designer emits it as the decisive computation and the gate lands at `needs_experiment` — never `internally_validated`. Spec 2 promotes the magnitude check to an executed lens. Spec 1's `internally_validated` therefore means precisely: *survived live web-grounding where applicable + adversarial red-team + derivation, on independent support/checks, for the faithfully-pinned claim* — and nothing stronger.
 >
 > **The limit you cannot test your way out of.** Every lens shares the base model's blind spots. `internally_validated` means **"survived the checks this system can run," never "true."** A reader who reads the label as "true" misuses the tool in exactly the way this design exists to prevent. This sentence ships in the CLI/report output, not just the spec.
 
@@ -114,7 +114,8 @@ class AtomicClaim:
             return "fail"
         if any(c.verdict == "uncertain" for c in self.checks):
             return "uncertain"
-        # pass requires an external check that itself rests on >=1 independent source
+        # pass requires an independent check; math/definition may use Prover,
+        # empirical/mechanistic claims require external Grounder support.
         if any(c.verdict == "pass" and c.independent_sources >= 1 for c in self.checks):
             return "pass"
         return "pending"           # never "pass"
@@ -155,14 +156,14 @@ class IdeaArtifact:
 def status(self) -> Status:
     # ===== ENTRY GATES (must pin the right, well-posed claim before anything) =====
     if self.formal_claim and not self.formal_claim.falsifiable:
-        return REFUTED                          # not_falsifiable
+        return NEEDS_EXPERIMENT                 # not_falsifiable
     if self.faithfulness and self.faithfulness.verdict == "no" and self.faithfulness.retried:
-        return REFUTED                          # unfaithful_drift   (after one retry)
+        return NEEDS_EXPERIMENT                 # unfaithful_drift   (after one retry)
     if self.faithfulness and self.faithfulness.verdict == "narrowed" and self.faithfulness.retried:
-        return REFUTED                          # unfaithful_narrowed
+        return NEEDS_EXPERIMENT                 # unfaithful_narrowed
     if self.formal_claim and self.faithfulness and self.faithfulness.verdict == "yes" \
             and not self.claim_graph and self.finalized:
-        return REFUTED                          # ill_formed   (empty/degenerate decomposition, after retry)
+        return NEEDS_EXPERIMENT                 # ill_formed   (empty/degenerate decomposition, after retry)
 
     rs = self.root_ancestors()
 
@@ -170,7 +171,7 @@ def status(self) -> Status:
     if any(c.status == "fail" for c in rs):
         return REFUTED                          # failed
     if self._landed("fatal"):
-        return REFUTED                          # attacked   (also the repair-cap path — §5)
+        return NEEDS_EXPERIMENT                 # severe_objection   (repair/validation target)
 
     # ===== NEEDS EXPERIMENT =====
     if any(c.status == "uncertain" for c in rs):
@@ -186,7 +187,7 @@ def status(self) -> Status:
 
     # ===== VALIDATED: STRICT (I2) =====
     if (rs and all(c.status == "pass" for c in rs)        # pending is never pass
-            and all(self._has_independent_external_check(c) for c in rs)
+            and all(self._has_independent_check(c) for c in rs)
             and (self.faithfulness and self.faithfulness.verdict == "yes")   # POSITIVE precond — symmetric w/ coverage;
                                                                             # closes faithfulness=None and narrowed/retried=False
                                                                             # in the GATE, not in scheduler ordering (§1 SPOF rule)
@@ -198,23 +199,23 @@ def status(self) -> Status:
     return DRAFT                                # non-terminal; scheduler keeps going (I3)
 ```
 
-`_thin_attack_surface()` = `magnitude` not in `attack_surface.attempted`, **or** fewer than `config.min_attack_categories` (default 2) attempted. `_has_independent_external_check(c)` = some `CheckRecord` on `c` with `verdict == "pass"` and `independent_sources ≥ 1`.
+`_thin_attack_surface()` = `magnitude` not in `attack_surface.attempted`, **or** fewer than `config.min_attack_categories` (default 2) attempted. `_has_independent_check(c)` = some `CheckRecord` on `c` with `verdict == "pass"` and `independent_sources ≥ 1`.
 
 > **Boundary note — teeth checks *coverage*, not *strength*.** `attempted` is the Red-team's self-report, so a *token* magnitude attack listed in `ATTEMPTED` passes `_thin_attack_surface()`. In Spec 1, teeth closes **"didn't try magnitude," not "tried magnitude weakly"** — the latter is exactly what Spec 2's *executed* magnitude check shuts. A reader must not read "passed teeth" as "was attacked hard."
 
 Totality properties (all paths terminate in one of three):
-- **`pending` never masquerades as `pass`** — validated branch requires strict `pass` + an independent external check; an orphaned claim sits `pending` → `uncovered` once `exhausted`.
-- **Faithfulness guards the *claim*, in the gate not the schedule** — drift/narrowing → `refuted` via the entry gates, *and* `internally_validated` positively requires `faithfulness.verdict == "yes"` in the validated branch (symmetric with `coverage`). The two slip-cases (`faithfulness is None`; `narrowed` with `retried == False`) are closed by the code, not by §5's ordering.
+- **`pending` never masquerades as `pass`** — validated branch requires strict `pass` + an independent check; an orphaned claim sits `pending` → `uncovered` once `exhausted`.
+- **Faithfulness guards the *claim*, in the gate not the schedule** — drift/narrowing → `needs_experiment` via the entry gates, *and* `internally_validated` positively requires `faithfulness.verdict == "yes"` in the validated branch (symmetric with `coverage`). The two slip-cases (`faithfulness is None`; `narrowed` with `retried == False`) are closed by the code, not by §5's ordering.
 - **Entailment guards the *decomposition*** — `COVERS: gap` → `needs_experiment`, *before* any "validated" is reachable.
 - **Independence guards the *evidence*** — a `supported` verdict with zero independent sources never becomes `pass` (downgraded to `uncertain` at the verdict-mapping layer, §3).
 - **Teeth guard the *attack*** — a thin/mostly-skipped surface caps below `internally_validated`.
-- **Repair-cap exhaustion** needs no special clause: at cap the scheduler finalizes; a still-`landed` fatal attack computes `refuted`.
+- **Repair-cap exhaustion** needs no special clause: at cap the scheduler finalizes; a still-`landed` fatal attack computes `needs_experiment` with `severe_objection` unless the claim has an explicit failing check.
 - **Empty decomposition** (the rev-1 totality hole) → `ill_formed` instead of hanging in `draft`.
 
 ### 2.2 `load_bearing` and `blocker` (computed)
 
 - `load_bearing` = the single most pivotal root-ancestor claim (max transitive dependents; or the claim that caused a `refuted`/`needs_experiment`).
-- `blocker` = `{claim_id | None, reason}`, reason ∈ `{not_falsifiable, unfaithful_drift, unfaithful_narrowed, ill_formed, failed, attacked, open_objection, uncovered, inconclusive, decomposition_gap, thin_attack_surface}`. Preserves what the three-way `status` collapses, without a fourth status.
+- `blocker` = `{claim_id | None, reason}`, reason ∈ `{not_falsifiable, unfaithful_drift, unfaithful_narrowed, ill_formed, failed, severe_objection, open_objection, uncovered, inconclusive, decomposition_gap, thin_attack_surface}`. Preserves what the three-way `status` collapses, without a fourth status.
 
 ### 2.3 `maturity` (computed, display-only) — the I1 one-directional rule
 
@@ -253,7 +254,7 @@ Structural guards (not per-claim lenses — they guard the *whole*): **Faithfuln
 | **Repairer** | landed attack / fatal gap | **new artifact version** | `REPAIR: … \| TARGETS: <claim_ids> \| RATIONALE: …` |
 | **Arbiter** | computed fields | final narrative only | `STATUS: … \| LOAD_BEARING: <claim_id> \| DECISIVE_TEST: …` (cross-checked vs computed; computed wins) |
 
-- **Faithfulness** back-translates `formal_claim` to plain language and asks "is this what the seed asked?" Independence from the Formalizer is the point — the author does not grade its own pin. `narrowed`/`no` → one bounded re-formalization retry (§5), then `refuted`.
+- **Faithfulness** back-translates `formal_claim` to plain language and asks "is this what the seed asked?" Independence from the Formalizer is the point — the author does not grade its own pin. `narrowed`/`no` → one bounded re-formalization retry (§5), then `needs_experiment`.
 - **Magnitude is the mandatory Red-team category**; its omission alone trips `_thin_attack_surface()`. The `ATTEMPTED` set is what makes "tried weakly" visible and cappable.
 - **Grounder** must populate `SOURCES`/`INDEPENDENT_SOURCES`; the code (not the LLM) downgrades `supported`+0-independent to `uncertain`.
 
@@ -282,14 +283,14 @@ The parse-4/6 lesson as a standing rule: the failure the happy path hides (a len
 
 ```
 1. Formalizer -> formal_claim.
-   ENTRY GATE 1 (falsifiability): FALSIFIABLE=no -> finalize, REFUTED/not_falsifiable. STOP.
+   ENTRY GATE 1 (falsifiability): FALSIFIABLE=no -> finalize, NEEDS_EXPERIMENT/not_falsifiable. STOP.
 2. Faithfulness (independent) -> faithfulness.
    ENTRY GATE 2 (faithfulness): FAITHFUL in {narrowed,no} ->
         ONE re-formalization retry with targeted feedback (set faithfulness.retried);
-        still {narrowed,no} -> finalize, REFUTED/unfaithful_(narrowed|drift). STOP.
+        still {narrowed,no} -> finalize, NEEDS_EXPERIMENT/unfaithful_(narrowed|drift). STOP.
 3. Decomposer -> claim_graph.
    GUARD (empty/degenerate): no claims -> ONE Decomposer retry;
-        still empty at finalize -> REFUTED/ill_formed. STOP.
+        still empty at finalize -> NEEDS_EXPERIMENT/ill_formed. STOP.
 4. Entailment (independent) -> coverage.  COVERS=gap is surfaced as blocker (known-partial;
    Red-team partly backstops). It caps below internally_validated (-> needs_experiment/decomposition_gap).
 5. Walk claim_graph in dependency order; per claim run its applicable lenses (matrix §2.4).
@@ -369,20 +370,20 @@ Seed: *"adding an antisymmetric curl term to gradient descent helps escape saddl
 - Code wins over narration: Arbiter narrates `internally_validated` while a claim is `fail` → computed `refuted`; mismatch logged.
 - `maturity ⊥ status`: `status` invariant under arbitrary injected `maturity`.
 
-**I2 — validated = survived an external, independent check**
+**I2 — validated = survived an independent check**
 - No validation without a check: any root-ancestor `pending` → `internally_validated` impossible.
 - Back-door (coverage gap): a `definitional` claim no lens covers → `pending`+`exhausted` → `needs_experiment`/`uncovered`, surfaced by claim id.
 - **Independence (#2):** Grounder returns `supported` with `INDEPENDENT_SOURCES: 0` → downgraded to `uncertain` → claim never `pass` → not `internally_validated`.
 - Honest outcomes reachable: scripted runs yield `refuted` and `needs_experiment`.
 
 **I3 — the gate is total**
-- **Faithfulness (#1):** seed "is collapse physical" → Formalizer drifts to "decoherence occurs", `FALSIFIABLE: yes` → Faithfulness `narrowed`/`no` → retry → terminal `refuted`/`unfaithful_*`; assert it never reaches `internally_validated`.
-- Not falsifiable: `FALSIFIABLE: no` → `refuted`/`not_falsifiable`.
-- **Empty decomposition (minor-1):** degenerate Decomposer → retry → `refuted`/`ill_formed`, no hang in `draft`.
+- **Faithfulness (#1):** seed "is collapse physical" → Formalizer drifts to "decoherence occurs", `FALSIFIABLE: yes` → Faithfulness `narrowed`/`no` → retry → terminal `needs_experiment`/`unfaithful_*`; assert it never reaches `internally_validated`.
+- Not falsifiable: `FALSIFIABLE: no` → `needs_experiment`/`not_falsifiable`.
+- **Empty decomposition (minor-1):** degenerate Decomposer → retry → `needs_experiment`/`ill_formed`, no hang in `draft`.
 - **Decomposition gap (#4):** sub-claims omit the load-bearing piece → `COVERS: gap` → `needs_experiment`/`decomposition_gap`, surfaced (known-partial).
 - **Thin attack surface (#3):** Red-team `ATTEMPTED` missing `magnitude` (or <2 categories) → capped at `needs_experiment`/`thin_attack_surface`, even with all claims `pass`.
 - **Fan-out policy (#5):** a load-bearing `uncertain` node is not `exhausted`/finalized until `fanout_N` independent lenses have run.
-- Repair-cap exhaustion: fatal attack persists through 3 repairs → `finalized`, `refuted`.
+- Repair-cap exhaustion: fatal attack persists through 3 repairs → `finalized`, `needs_experiment`/`severe_objection`.
 - Landed non-fatal (D4): unresolved `major` → `needs_experiment`/`open_objection`; `minor` → `internally_validated` reachable, lower `maturity`.
 - Order-independence: `status` identical across shuffled verdict-application orders.
 - Version-don't-mutate: repair yields v2; v1 `CheckRecord`s untouched; only affected subgraph re-ran.
@@ -398,18 +399,20 @@ Seed: *"adding an antisymmetric curl term to gradient descent helps escape saddl
 - **Next:** invoke writing-plans → phased plan (schema + parse → entry guards → lenses → scheduler/fan-out → tests), then implement, with the `maturity` formula as the learning-mode contribution.
 
 ### Decision log
-- **D1** `FALSIFIABLE: no` → `refuted`/`not_falsifiable` (entry gate; extends totality to the entrance).
+- **D1** `FALSIFIABLE: no` → `needs_experiment`/`not_falsifiable` (entry gate; extends totality to the entrance without claiming falsity).
 - **D2** coverage gap (`pending`+`exhausted` root-ancestor) → `needs_experiment`/`uncovered`; `blocker` keeps it distinct from `inconclusive`.
 - **D3** Prover broadened to `definitional` well-formedness so no claim type is orphaned (prevention; `pending ≠ pass` is the backstop).
-- **D4** severity-graded landed attacks: `fatal`→`refuted`, unresolved `major`→`needs_experiment`, `minor`→maturity-only.
-- **D5** repair-cap exhaustion: scheduler finalizes; gate computes `refuted` from the persisting fatal attack (no special clause).
+- **D4** severity-graded landed attacks: explicit per-claim contradiction/counterexample/refutation → `refuted`; otherwise `fatal`→`needs_experiment`/`severe_objection`, unresolved `major`→`needs_experiment`, `minor`→maturity-only.
+- **D5** repair-cap exhaustion: scheduler finalizes; gate computes `needs_experiment`/`severe_objection` from the persisting fatal attack unless an explicit failing check exists (no special clause).
 - **D6** double-parse-failure → `uncertain` CheckRecord (a check was attempted), distinct from `pending`.
-- **D7** *(rev 2, #1)* **Faithfulness entry gate** — independent seed↔formal_claim back-translation; `narrowed`/`no` → one bounded re-formalization retry → terminal `refuted`/`unfaithful_*`. The SPOF upstream of the whole gate; a total gate on an unverified pin is the project's own failure mode relocated upstream.
+- **D7** *(rev 2, #1)* **Faithfulness entry gate** — independent seed↔formal_claim back-translation; `narrowed`/`no` → one bounded re-formalization retry → terminal `needs_experiment`/`unfaithful_*`. The SPOF upstream of the whole gate; a total gate on an unverified pin is the project's own failure mode relocated upstream.
 - **D8** *(rev 2, #2)* **`CheckRecord` independence seam** — `sources[]` + `independent_sources`; Grounder `supported`+0-independent downgraded to `uncertain` in code. Carved now so Spec 3's citation-aware retriever needs no reshape.
 - **D9** *(rev 2, #3)* **Red-team teeth** — `attack_surface.attempted`; magnitude mandatory; thin/mostly-skipped surface caps below `internally_validated`.
 - **D10** *(rev 2, #4, known-partial)* **Entailment `COVERS` pass** — conjunction of sub-claims ⊢ `formal_claim`; `gap` caps below `internally_validated`. Catches obvious cases; Red-team backstops the rest.
 - **D11** *(rev 2, #5)* **Fan-out policy in Spec 1, execution in Spec 4** — load-bearing `uncertain` nodes require `fanout_N` **diverse-type** lenses before finalizing; value is disagreement-detection, not agreement-as-corroboration (repetition ≠ corroboration — same correlation D8 guards for sources). The append-only join already supports it; only the trigger is new.
-- **D12** *(rev 2, minor-1)* **Empty-decomposition guard** — degenerate Decomposer → retry → `refuted`/`ill_formed`; closes a totality hole.
+- **D12** *(rev 2, minor-1)* **Empty-decomposition guard** — degenerate Decomposer → retry → `needs_experiment`/`ill_formed`; closes a totality hole.
+- **D13** *(rev 3)* **Not-found is not false** — Grounder `unsupported`/unmatched literature maps to `uncertain`, not `fail`; explicit contradictions/counterexamples are preserved in `basis` and block validation without letting literature alone decide falsity.
+- **D14** *(rev 3)* **Internal proof boundary** — complete Prover derivations can independently pass definitional/mathematical claims. For mathematical claims, a non-contradictory Grounder uncertainty does not override a complete proof; explicit Grounder contradictions still keep the claim `uncertain`.
 - **Limit (rev 2, minor-2)** — `internally_validated` = "survived the checks this system can run," never "true"; every lens shares the base model's blind spots. Sentence ships in the report output, not just the spec.
 
 ---
