@@ -356,6 +356,26 @@ where it comes from. Use plain SymPy-parseable math (e.g. G*M/r**2, c, oo). Do n
 End with exactly:
 EXPRESSION: <expr> | VARIABLES: <comma-separated symbols> | LIMIT_VARIABLE: <symbol> | LIMIT_POINT: <oo|0|value> | EXPECTED: <expr> | EXPECTED_SOURCE: <where the known result comes from> | CONFIRM_IF: <…> | REFUTE_IF: <…>"""
 
+SIMULATION_DESIGNER = """You DESIGN a toy-model simulation; you do NOT run or judge it — code does that, \
+and you will never see the result. Given a mechanistic claim, produce a structured plan that tests whether \
+the proposed dynamics ROBUSTLY produce the claimed behavior. Output NO code — only the structured plan.
+
+FORMAL CLAIM: {formal}
+MECHANISTIC CLAIM: {statement}
+
+Model the mechanism as a set of first-order ODEs (primitive "ode_integrate"): give state_vars, the rhs for \
+each (plain SymPy-parseable expressions in the state vars + parameters, e.g. "-a*x + b*y"), fixed params and \
+initial conditions (init), and — REQUIRED for robustness — a param_sweep and/or init_sweep of ranges \
+[lo, hi, n]. Give the observable (one of: final_value, mean_window, amplitude, settle_std, max_value, \
+min_value) with its var and window_frac in (0,1], a structured criterion {{"op": ge|le|gt|lt|in, \
+"threshold": [..]}} that the observable must satisfy for the claimed behavior, and robust_frac in [0,1] (the \
+fraction of the swept grid on which the criterion must hold). Include positive caps: max_steps, \
+max_grid_points, max_state_vars, max_expr_nodes.
+
+Output the plan as a SINGLE JSON object in a ```json fenced block, with exactly these keys: primitive, \
+state_vars, rhs, params, init, param_sweep, init_sweep, t_span, dt, observable, sim_criterion, robust_frac, \
+max_steps, max_grid_points, max_state_vars, max_expr_nodes."""
+
 ARBITER = COMMON_RUBRIC + """
 
 Role: cross-check the computed outcome and identify what matters most.

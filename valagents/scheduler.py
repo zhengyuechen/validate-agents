@@ -81,6 +81,7 @@ from valagents.agents.redteam import red_team
 from valagents.agents.validation_designer import design_validation
 from valagents.agents.repairer import repair
 from valagents.agents.arbiter import arbitrate
+from valagents.agents.simulation_designer import design_simulation
 
 _LENS_BY_TYPE: dict[str, list[str]] = {
     "definitional": ["prover"],
@@ -239,6 +240,7 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
                 "verdict": record.verdict,
             })
     await run_magnitude_checks(store, llm, cfg, tick=tick + 500)
+    await run_simulation_checks(store, llm, cfg, tick=tick + 700)
     plan = await design_validation(art, llm, cfg)
     store.set("validation_plan", plan)
     if plan is not None:
@@ -292,6 +294,29 @@ async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
         art.attacks = art.attacks + [attack]
         if art.attack_surface is not None and "magnitude" not in art.attack_surface.attempted:
             art.attack_surface.attempted = art.attack_surface.attempted + ["magnitude"]
+        tick += 1
+
+
+async def run_simulation_checks(store, llm, cfg, tick: int = 0) -> None:
+    art = store.current
+    claims = [c for c in art.claim_graph if c.type == "mechanistic"][:3]   # no-op when none; cap at 3
+    for claim in claims:
+        plan = await design_simulation(claim, art, llm, cfg)
+        if plan is None:
+            continue
+        from valagents.sandbox.executor import run_plan
+        from valagents.computation import verdict_to_sim_attack
+        adir = f"{cfg.results_dir}/computations/simulation/{claim.id}" if getattr(cfg, "results_dir", None) else None
+        verdict = run_plan(plan, cfg, artifacts_dir=adir)
+        store.record({"event": "simulation_executed", "claim": claim.id,
+                      "verdict": verdict.verdict, "computed": verdict.measured})
+        if verdict.verdict == "uncertain":
+            continue                                   # FAIL-CLOSED: no attack, no mark (L2-D9 / F2)
+        fatal_eligible = bool(claim.load_bearing and claim.role == "novel_core")
+        attack = verdict_to_sim_attack(verdict, claim.id, fatal_eligible, tick=tick)
+        art.attacks = art.attacks + [attack]
+        if art.attack_surface is not None and "simulation" not in art.attack_surface.attempted:
+            art.attack_surface.attempted = art.attack_surface.attempted + ["simulation"]
         tick += 1
 
 
