@@ -176,25 +176,28 @@ def _eval_criterion(val, crit):
     raise ValueError(f"unknown criterion op: {op}")
 
 def _build_grid(param_sweep, init_sweep, parse_num, max_grid_points=None):
-    """Cartesian product of param_sweep x init_sweep axes. Each [lo, hi, n] -> n evenly spaced
-    values in [lo, hi] inclusive. Returns [(param_overrides, init_overrides), ...]. If max_grid_points
-    is given, rejects (raises) when the PROJECTED product exceeds it, before materializing the list."""
+    """Cartesian product of param_sweep x init_sweep axes. Each [lo, hi, n] -> n evenly spaced values in
+    [lo, hi] inclusive. Returns [(param_overrides, init_overrides), ...]. If max_grid_points is given,
+    rejects (raises) when the PROJECTED product of the axis counts exceeds it, BEFORE building any axis."""
     import itertools
-    axes = []   # (kind, name, [values])
+    specs = []   # (kind, name, lo_str, hi_str, npts)
     for kind, sweep in (("param", param_sweep), ("init", init_sweep)):
         for name, spec in sweep.items():
-            lo, hi, npts = parse_num(spec[0]), parse_num(spec[1]), int(float(spec[2]))
+            npts = int(float(spec[2]))
             if npts < 1:
                 raise ValueError(f"sweep '{name}' needs n >= 1")
-            step = 0.0 if npts == 1 else (hi - lo) / (npts - 1)
-            values = [lo + step * i for i in range(npts)]
-            axes.append((kind, name, values))
-    if max_grid_points is not None:                              # projected-product cap BEFORE materializing
+            specs.append((kind, name, spec[0], spec[1], npts))
+    if max_grid_points is not None:                       # cap on the projected product BEFORE materializing any axis
         projected = 1
-        for ax in axes:
-            projected *= len(ax[2])
+        for s in specs:
+            projected *= s[4]
         if projected > int(max_grid_points):
             raise ValueError(f"projected grid {projected} exceeds max_grid_points {max_grid_points}")
+    axes = []
+    for (kind, name, lo_s, hi_s, npts) in specs:
+        lo, hi = parse_num(lo_s), parse_num(hi_s)
+        step = 0.0 if npts == 1 else (hi - lo) / (npts - 1)
+        axes.append((kind, name, [lo + step * i for i in range(npts)]))
     grid = []
     for combo in itertools.product(*[ax[2] for ax in axes]) if axes else [()]:
         pov, iov = {}, {}
@@ -298,9 +301,10 @@ def _run_simulation(plan: dict) -> dict:
         collisions = set(state_vars) & param_names_set          # a name can't be BOTH a state var and a parameter
         if collisions:
             return _u(f"name(s) used as both state var and parameter: {sorted(collisions)}")
+        if len(state_vars) != len(set(state_vars)):
+            return _u(f"duplicate state_vars: {sorted({v for v in state_vars if state_vars.count(v) > 1})}")
         null_overrides = plan.get("null_overrides", {})
-        declared_params = set(plan.get("params", {})) | set(plan.get("param_sweep", {}))
-        bad_null = set(null_overrides) - declared_params
+        bad_null = set(null_overrides) - param_names_set
         if bad_null:                                  # NC-D4: a null override may only touch a declared coupling param
             return _u(f"null_overrides reference undeclared/non-param names: {sorted(bad_null)}")
         n_arms = 2 if null_overrides else 1

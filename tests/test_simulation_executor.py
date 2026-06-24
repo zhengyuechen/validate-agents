@@ -147,3 +147,7 @@ def test_projected_grid_cap_before_materializing_uncertain():
     # a sweep whose projected product exceeds max_grid_points -> uncertain (without building the huge list)
     v = run_plan(splan(param_sweep={"a": ["0.8", "1.2", "100000"]}, max_grid_points=50), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+def test_duplicate_state_vars_uncertain():
+    v = run_plan(splan(state_vars=["x", "x"], rhs={"x": "-a*x"}, init={"x": "1.0"}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
