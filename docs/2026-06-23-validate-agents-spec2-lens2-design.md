@@ -75,6 +75,7 @@ class ComputationPlan(BaseModel):
     bound: str = ""
     bound_source: str = ""
     closest_prior_effect: str = ""
+    closest_prior_source: str = ""   # mandatory for discriminating_margin (L2-D10) — anti-laundering of the alternative
     uncertainty: str = ""
     threshold: str = ""
     target_claim_id: str | None = None     # which claim the magnitude objection is about (else artifact-level)
@@ -145,7 +146,7 @@ The Executor runs real, pinned numpy + the restricted parser — so tests exerci
   - `sensitivity_ratio` **inert** → `matched="refute"` (predicted 1e-18, sensitivity 1e-12 → ratio 1e-6 < 3).
   - **missing `sensitivity_source` → `ok=False` → `uncertain`** (the anti-laundering test — a thresholds-without-source plan never passes/lands).
   - `bound_check` complies (`predicted ≤ bound`) → `confirm`; **violates** (`predicted > bound`) → `refute`.
-  - `discriminating_margin` clears → `confirm`; below → `refute`.
+  - `discriminating_margin` clears → `confirm`; below → `refute`; **missing `closest_prior_source` → `uncertain`** (L2-D10).
   - dunder/garbled quantity → `uncertain` (restricted parser, never executes).
 - **Magnitude-Designer (FakeLLM):** emits the structured tail → `ComputationPlan` (right `comparison_kind`, required fields); missing source field → returns a plan the executor will mark `uncertain`, or `None`.
 - **Verdict mapping:** `verdict_to_attack` — confirm→`survived`, refute→`landed` with severity `fatal` iff `discriminating`; `bound_check` refute→`CheckRecord(fail)`.
@@ -175,4 +176,6 @@ The Executor runs real, pinned numpy + the restricted parser — so tests exerci
 - **L2-D6** `_evaluate()` unchanged — magnitude flows through `attacks` (attack path) and `claim.status` (bound path), both already read by the gate.
 - **L2-D7 (loud caveat)** Verifies clearance/violation against the *preregistered, sourced* threshold, not that the threshold is literature-correct (Spec-3 grounding). All values + sources saved as artifacts.
 - **L2-D8** F2 fallback: an `uncertain` magnitude result adds no attack and no claim; the reasoned Red-team magnitude (and Prover) stand.
-- **L2-D9 (anti-laundering of teeth)** `"magnitude"` is added to `AttackSurface.attempted` **only on a decisive executed attack-path verdict** (`survived`/`landed`) — never on a fail-closed `uncertain`/missing-source run. Otherwise a non-execution would satisfy `_thin_attack_surface()`. Tested (§8).
+- **L2-D9 (anti-laundering of teeth)** `"magnitude"` is added to `AttackSurface.attempted` **only on a decisive executed attack-path verdict** (`survived`/`landed`) — never on a fail-closed `uncertain`/missing-source run, and never on the `bound_check` claim path (a compliance check is not an adversarial detectability probe). Otherwise a non-execution would satisfy `_thin_attack_surface()`. Tested (§8).
+- **L2-D10 (anti-laundering of the alternative)** `discriminating_margin` requires a mandatory **`closest_prior_source`** for `closest_prior_effect` (missing → `uncertain`), surfaced loud in the attack basis — extending the §2.4 sourced-threshold rule to the third comparison kind so the "best alternative" value cannot be invented unaudited. The §7 caveat applies equally: the source is named and frozen but not yet grounded (Spec-3 follow-on).
+- **L2-D11 (bound-claim idempotence)** `run_magnitude_checks` re-runs each repair iteration; the `bound_check` claim path clears any prior `origin="bound_check"` claims (and their checks) before re-injecting, mirroring how `red_team` overwrites `attacks` — so bound claims never accumulate across repairs.
