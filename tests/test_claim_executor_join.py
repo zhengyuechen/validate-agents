@@ -18,3 +18,17 @@ def test_executor_pass_needs_independent_source():
 
 def test_evaluate_does_not_reference_executor():
     assert "executor" not in inspect.getsource(IdeaArtifact._evaluate)
+
+def test_executor_pass_overrides_prover_uncertain():
+    p = CheckRecord(lens="prover", verdict="uncertain", basis="gapped derivation")
+    e = CheckRecord(lens="executor", verdict="pass", independent_sources=1)
+    assert _claim([p, e]).status == "pass"     # executed proof dominates reasoned doubt
+
+def test_prover_uncertain_alone_stays_uncertain():
+    p = CheckRecord(lens="prover", verdict="uncertain", basis="gapped")
+    assert _claim([p]).status == "uncertain"   # no proof pass -> still uncertain
+
+def test_contradiction_uncertain_still_blocks_even_with_executor_pass():
+    p = CheckRecord(lens="prover", verdict="uncertain", basis="CONTRADICTION: violates bound")
+    e = CheckRecord(lens="executor", verdict="pass", independent_sources=1)
+    assert _claim([p, e]).status == "uncertain"  # a contradiction blocks regardless
