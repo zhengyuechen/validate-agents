@@ -352,7 +352,10 @@ def _run_simulation(plan: dict) -> dict:
             if point_pass:
                 passes += 1
         frac = passes / gsize
-        robust = frac >= parse_num(plan["robust_frac"])
+        rf = parse_num(plan["robust_frac"])
+        if not (0.0 < rf <= 1.0):
+            return _u(f"robust_frac must be in (0, 1]: {rf}")
+        robust = frac >= rf
         if null_overrides:
             computed = f"discriminating: {passes}/{gsize} ({frac:.2f} >= {plan['robust_frac']})"
         else:

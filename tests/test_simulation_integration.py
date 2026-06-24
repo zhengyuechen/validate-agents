@@ -143,11 +143,25 @@ async def test_designer_coerces_numeric_json_values():
     assert p.t_span == ["0", "5"]                          # list[str] elements coerced
     assert p.sim_criterion == {"op": "le", "threshold": ["0.2"]}   # nested threshold coerced
     assert p.robust_frac == "0.8"
-    assert p.max_steps == 2000 and p.max_grid_points == 50 # int caps stay ints (NOT stringified)
+    assert p.max_steps == 2000 and p.max_grid_points == 50 and p.max_state_vars == 4 and p.max_expr_nodes == 50  # int caps stay ints (NOT stringified)
 
 async def test_numeric_json_plan_runs_end_to_end():
     # the coerced plan must actually execute (discriminating, since null_overrides a=0) -> a real attack, not a silent skip
     s = _store()
     await run_simulation_checks(s, router(NUMERIC_BODY), cfg())
     sims = [a for a in s.current.attacks if a.type == "simulation"]
-    assert sims and sims[0].status in ("survived", "landed")   # plan ran (not dropped to None)
+    assert sims and sims[0].status == "survived" and "discriminating" in sims[0].basis  # discriminating two-arm path ran
+
+async def test_numeric_state_vars_rejected():
+    # numeric state-var names must NOT be coerced into valid names -> Pydantic list[str] rejects -> None
+    bad = {**NUMERIC_PLAN, "state_vars": [0, 1], "rhs": {"0": "-a*0", "1": "a*1"}}
+    body = "```json\n" + json.dumps(bad) + "\n```"
+    s = _store()
+    assert await design_simulation(s.current.claim_graph[0], s.current, router(body), cfg()) is None
+
+async def test_bool_value_rejected():
+    # a bool in a dict[str,str] field stays a bool -> Pydantic rejects -> None (not coerced to "True")
+    bad = {**NUMERIC_PLAN, "params": {"a": True}}
+    body = "```json\n" + json.dumps(bad) + "\n```"
+    s = _store()
+    assert await design_simulation(s.current.claim_graph[0], s.current, router(body), cfg()) is None

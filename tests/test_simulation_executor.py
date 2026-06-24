@@ -126,3 +126,8 @@ def test_single_arm_within_double_budget_passes():
     v = run_plan(splan(param_sweep={"a": ["0.8", "1.2", "10"]}, t_span=["0", "15"], dt="0.001",
                        max_steps=200_000, max_grid_points=400), cfg2)
     assert v.verdict == "pass"
+
+def test_robust_frac_zero_uncertain():
+    # robust_frac=0 would be an unconditional rubber-stamp -> rejected as out of (0,1] -> uncertain
+    v = run_plan(splan(robust_frac="0"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
