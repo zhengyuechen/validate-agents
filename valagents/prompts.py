@@ -84,8 +84,10 @@ Checklist:
 - Use only labels present in RETRIEVED LITERATURE, such as [A1] or [A2].
 - Do not cite memory, outside knowledge, or unlabeled sources.
 - "supported" requires direct support for the sub-claim, not merely topic similarity.
-- "unsupported" applies when retrieved work contradicts the sub-claim or lacks needed support.
-- "uncertain" applies when retrieved work is incomplete, indirect, ambiguous, or absent.
+- "unsupported" applies only when retrieved work explicitly contradicts the sub-claim.
+- "uncertain" applies when retrieved work is incomplete, indirect, ambiguous, absent, or merely lacks support.
+- If retrieved work contradicts the sub-claim, write the contradiction explicitly in BASIS beginning with "CONTRADICTION:".
+- Do not decide that a novel claim is false merely because existing literature has not yet supported it.
 - Count independent sources as distinct author groups or experimental/theoretical lineages, not repeated papers from the same group.
 - The BASIS should name the decisive support, contradiction, or missing evidence.
 

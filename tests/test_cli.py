@@ -61,6 +61,11 @@ async def test_run_cli_accepts_explicit_run_id(tmp_path, cfg):
     assert out["json_path"].endswith("web-run.json")
     assert out["report_path"].endswith("web-run.md")
     assert (tmp_path / ".logs" / "web-run.jsonl").parent.exists()
+    outputs_path = tmp_path / ".agent_outputs" / "web-run.jsonl"
+    assert outputs_path.exists()
+    outputs = [json.loads(line) for line in outputs_path.read_text().splitlines()]
+    assert {row["agent"] for row in outputs} >= {"formalizer", "faithfulness", "decomposer"}
+    assert all("body" in row and "parse_status" in row for row in outputs)
 
 
 async def test_run_cli_writes_references_bib_and_markers(tmp_path, cfg):

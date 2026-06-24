@@ -29,7 +29,7 @@ def test_support_downgrade_without_independent_source():
     assert map_support_to_verdict("supported", 0) == "uncertain"   # D8
     assert map_support_to_verdict("supported", 1) == "pass"   # exact >=1 boundary
     assert map_support_to_verdict("supported", 2) == "pass"
-    assert map_support_to_verdict("unsupported", 5) == "fail"
+    assert map_support_to_verdict("unsupported", 5) == "uncertain"
 
 
 def test_as_int_extracts_first_integer():

@@ -42,6 +42,19 @@ async def test_grounder_supported_with_independent(cfg):
     assert rec.sources[0].url == "https://arxiv.org/abs/1234.5678"
 
 
+@pytest.mark.asyncio
+async def test_grounder_contradiction_is_recorded_not_refuting(cfg):
+    body = (
+        "CLAIM: c1 | SUPPORT: unsupported | INDEPENDENT_SOURCES: 1 | SOURCES: [A1] | "
+        "BASIS: CONTRADICTION: retrieved source reports saturation"
+    )
+    rec = await ground_claim(CM, FC, FakeBackend(), FakeLLM(lambda a, m: body), cfg)
+
+    assert rec.verdict == "uncertain"
+    assert "CONTRADICTION:" in rec.basis
+    assert rec.sources[0].url == "https://arxiv.org/abs/1234.5678"
+
+
 # ---------------------------------------------------------------------------
 # Prover — base tests
 # ---------------------------------------------------------------------------

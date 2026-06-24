@@ -23,5 +23,5 @@ def map_support_to_verdict(support: str, independent_sources: int) -> str:
     if support == "supported":
         return "pass" if independent_sources >= 1 else "uncertain"   # D8 downgrade
     if support == "unsupported":
-        return "fail"
+        return "uncertain"
     return "uncertain"

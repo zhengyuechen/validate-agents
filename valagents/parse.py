@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from valagents.llm import LLMClient
+from valagents import run_log
 
 log = logging.getLogger(__name__)
 
@@ -46,14 +47,48 @@ async def _attempt(agent, messages, required_keys, llm, multi):
     body = await llm.complete(agent, messages)
     parse = parse_tail_lines if multi else parse_tail
     try:
-        return parse(body, required_keys), body
+        parsed = parse(body, required_keys)
+        run_log.emit_agent_output(
+            agent,
+            attempt=1,
+            required_keys=required_keys,
+            multi=multi,
+            parse_status="parsed",
+            body=body,
+        )
+        return parsed, body
     except StrictTailError:
+        run_log.emit_agent_output(
+            agent,
+            attempt=1,
+            required_keys=required_keys,
+            multi=multi,
+            parse_status="strict_tail_error",
+            body=body,
+        )
         reask = list(messages) + [{"role": "assistant", "content": body},
                                   {"role": "user", "content": _reask(required_keys)}]
         body2 = await llm.complete(agent, reask)
         try:
-            return parse(body2, required_keys), body2
+            parsed = parse(body2, required_keys)
+            run_log.emit_agent_output(
+                agent,
+                attempt=2,
+                required_keys=required_keys,
+                multi=multi,
+                parse_status="parsed_after_reask",
+                body=body2,
+            )
+            return parsed, body2
         except StrictTailError:
+            run_log.emit_agent_output(
+                agent,
+                attempt=2,
+                required_keys=required_keys,
+                multi=multi,
+                parse_status="strict_tail_error",
+                body=body2,
+            )
             log.warning("strict-tail double failure agent=%s\n--body1--\n%s\n--body2--\n%s",
                         agent, body, body2)
             return None, body2
