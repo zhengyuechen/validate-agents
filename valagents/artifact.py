@@ -127,6 +127,7 @@ class AtomicClaim(BaseModel):
     load_bearing: bool = True
     checks: list[CheckRecord] = []
     exhausted: bool = False
+    origin: str = "decomposed"  # display-only; not read by _evaluate
 
     def _math_grounder_uncertainty_is_nonblocking(self, check: CheckRecord) -> bool:
         if self.type != "mathematical" or check.lens != "grounder":

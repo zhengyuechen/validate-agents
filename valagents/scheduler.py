@@ -2,7 +2,7 @@
 from __future__ import annotations
 from valagents.store import ArtifactStore
 from valagents.config import Config
-from valagents.artifact import IdeaArtifact
+from valagents.artifact import IdeaArtifact, AtomicClaim
 from valagents.agents.formalizer import formalize
 from valagents.agents.faithfulness import faithfulness_check
 from valagents.agents.decomposer import decompose
@@ -246,6 +246,49 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
         })
 
 
+async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int) -> None:
+    """Promote each known limit into a load_bearing mathematical AtomicClaim and prove it."""
+    art = store.current
+    limits = art.known_limits
+    if not limits:
+        return
+
+    if len(limits) > 3:
+        store.record({
+            "event": "limit_checks_capped",
+            "total": len(limits),
+            "kept": 3,
+        })
+        limits = limits[:3]
+
+    existing_ids = {c.id for c in art.claim_graph}
+    for i, kl in enumerate(limits, start=1):
+        claim_id = f"L{i}"
+        # Ensure uniqueness if "L1" etc. already exist
+        while claim_id in existing_ids:
+            claim_id = f"L{i}_{len(existing_ids)}"
+        existing_ids.add(claim_id)
+
+        claim = AtomicClaim(
+            id=claim_id,
+            statement=f"In the relevant regime, the idea recovers/respects the known limit: {kl.limit}",
+            type="mathematical",
+            load_bearing=True,
+            origin="limit_recovery",
+        )
+        art.claim_graph.append(claim)
+        rec = await prove_claim(claim, art.formal_claim, llm, cfg, tick=tick)
+        tick += 1
+        store.add_check(claim_id, rec)
+        store.record({
+            "event": "limit_check",
+            "claim": claim_id,
+            "limit": kl.limit,
+            "verdict": rec.verdict,
+        })
+        claim.exhausted = True
+
+
 async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
     store = ArtifactStore(IdeaArtifact(raw_idea=raw_idea))
     if not await run_entry_gates(store, raw_idea, backend, llm, cfg):
@@ -253,6 +296,7 @@ async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
 
     await run_claim_checks(store, backend, llm, cfg)
     await _whole_artifact_lenses(store, backend, llm, cfg, tick=1000)
+    await inject_limit_checks(store, llm, cfg, tick=1500)
 
     while store.current.repairs_spent < cfg.gate.repair_cap:
         targets = _repair_targets(store.current)

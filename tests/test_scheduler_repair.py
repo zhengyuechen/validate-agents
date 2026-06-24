@@ -67,6 +67,7 @@ BASE = {
     ),
     "validation_designer": "TEST: t | CONFIRM_IF: c | REFUTE_IF: r | COST: low",
     "arbiter": "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: t",
+    "prover": "DERIVATION: complete | GAPS: none | FATAL_GAP: no",
 }
 
 

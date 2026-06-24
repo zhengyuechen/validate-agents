@@ -140,6 +140,12 @@ def render_report(art, refs=None) -> str:
                 f"failure if not: {item.failure_if_not}; repair: {item.repair_needed}"
             )
         lines.append("")
+    limit_claims = [c for c in art.claim_graph if c.origin == "limit_recovery"]
+    if limit_claims:
+        lines.append("## Limit-recovery checks")
+        for c in limit_claims:
+            lines.append(f"- `{c.id}` **{c.status}** — {c.statement}")
+        lines.append("")
     if art.convincing_case:
         case = art.convincing_case
         lines += [
