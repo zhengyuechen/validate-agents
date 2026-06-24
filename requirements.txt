@@ -10,3 +10,4 @@ pytest-asyncio>=0.21
 fastapi
 uvicorn
 sympy
+numpy

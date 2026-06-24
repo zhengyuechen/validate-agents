@@ -1,14 +1,15 @@
 """Sandbox runner (subprocess entry point). Reads a frozen ComputationPlan JSON on stdin,
 runs the SymPy computation the plan describes, prints a result JSON on stdout.
-Imports ONLY json + sympy. No network, no filesystem writes. NEVER execs LLM-provided code:
-expressions are parsed with parse_expr over a restricted namespace, not sympify/eval."""
+Imports ONLY json + sympy (+ numpy for magnitude). No network, no filesystem writes.
+NEVER execs LLM-provided code: expressions are parsed with parse_expr over a restricted
+namespace, not sympify/eval."""
 import json
 import sys
 
 _ALLOWED = ("sin", "cos", "tan", "exp", "log", "sqrt", "Abs", "sign",
             "pi", "E", "oo", "Rational", "Integer", "Float")
 
-def _run(plan: dict) -> dict:
+def _run_symbolic(plan: dict) -> dict:
     # Defense-in-depth: reject dunder strings pre-parse (blocks __import__, __class__, etc.)
     for field in (plan["expression"], plan["expected"], str(plan["limit_point"])):
         if "__" in field:
@@ -35,6 +36,50 @@ def _run(plan: dict) -> dict:
     holds = bool(diff == 0)
     return {"ok": True, "computed": str(computed),
             "matched": "confirm" if holds else "refute"}
+
+_MAG_REQUIRED = {
+    "sensitivity_ratio": ["predicted_effect", "baseline_or_null", "sensitivity",
+                          "sensitivity_source", "threshold"],
+}
+
+def _parse_number(s, glob) -> float:
+    from sympy.parsing.sympy_parser import parse_expr
+    if "__" in str(s):
+        raise ValueError("rejected: '__' not allowed")
+    return float(parse_expr(str(s), local_dict={}, global_dict=glob, evaluate=True).evalf())
+
+def _run_magnitude(plan: dict) -> dict:
+    import sympy
+    import numpy as np
+    ck = plan.get("comparison_kind")
+    required = _MAG_REQUIRED.get(ck)
+    if required is None:
+        return {"ok": False, "matched": "neither", "error": f"unsupported comparison_kind: {ck}"}
+    for field in required:                        # fail-closed: quantity AND source must be present
+        if not str(plan.get(field, "")).strip():
+            return {"ok": False, "matched": "neither", "error": f"missing required field: {field}"}
+    glob = {n: getattr(sympy, n) for n in _ALLOWED}
+    glob["__builtins__"] = {}
+    try:
+        if ck == "sensitivity_ratio":
+            predicted = _parse_number(plan["predicted_effect"], glob)
+            baseline = _parse_number(plan["baseline_or_null"], glob)
+            sensitivity = _parse_number(plan["sensitivity"], glob)
+            threshold = _parse_number(plan["threshold"], glob)
+            if sensitivity == 0:
+                return {"ok": False, "matched": "neither", "error": "sensitivity is zero"}
+            ratio = float(np.abs(predicted - baseline) / sensitivity)
+            detectable = ratio >= threshold
+            return {"ok": True, "computed": f"ratio={ratio:.6g}",
+                    "matched": "confirm" if detectable else "refute"}
+    except Exception as e:
+        return {"ok": False, "matched": "neither", "error": f"{type(e).__name__}: {e}"}
+    return {"ok": False, "matched": "neither", "error": "no computation performed"}
+
+def _run(plan: dict) -> dict:
+    if plan.get("kind") == "magnitude":
+        return _run_magnitude(plan)
+    return _run_symbolic(plan)
 
 def main() -> None:
     try:
