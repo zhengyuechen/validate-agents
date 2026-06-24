@@ -295,10 +295,11 @@ async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int)
             from valagents.computation import verdict_to_check
             adir = f"{cfg.results_dir}/computations/{claim_id}" if getattr(cfg, "results_dir", None) else None
             verdict = run_plan(plan, cfg, artifacts_dir=adir)
-            store.add_check(claim_id, verdict_to_check(verdict, tick=tick))
             store.record({"event": "limit_executed", "claim": claim_id,
                           "verdict": verdict.verdict, "computed": verdict.measured})
-            tick += 1
+            if verdict.verdict != "uncertain":      # decisive only — uncertain falls back to the Prover (F2/§5)
+                store.add_check(claim_id, verdict_to_check(verdict, tick=tick))
+                tick += 1
 
         claim.exhausted = True
 
