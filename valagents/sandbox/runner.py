@@ -206,6 +206,26 @@ def _build_grid(param_sweep, init_sweep, parse_num, max_grid_points=None):
         grid.append((pov, iov))
     return grid
 
+def _spectral_pass(jac_exprs, rhs_exprs, state_vars, fp_exprs, params_env, fp_tol, sim_criterion, np, npfuncs):
+    """One linear_stability grid point: evaluate the parametric fixed point under params_env, verify rhs~=0,
+    evaluate the Jacobian there, and read the spectral abscissa alpha=max(Re eigvals). Raises (-> uncertain
+    upstream) on an off-equilibrium point or a non-finite alpha. Returns (x_star, max_residual, alpha, stable)."""
+    import math
+    x_star = {var: _eval_expr(fp_exprs[var], params_env, np, npfuncs) for var in state_vars}
+    env = {**params_env, **x_star}
+    max_res = max(abs(_eval_expr(expr, env, np, npfuncs)) for (_, expr) in rhs_exprs)
+    if max_res > fp_tol:
+        raise ValueError(f"declared point is not an equilibrium: residual {max_res:.3g} > tol {fp_tol:.3g}")
+    n = len(state_vars)
+    jac = np.empty((n, n), dtype=float)
+    for i in range(n):
+        for j in range(n):
+            jac[i, j] = _eval_expr(jac_exprs[i][j], env, np, npfuncs)
+    alpha = float(np.max(np.linalg.eigvals(jac).real))
+    if not math.isfinite(alpha):
+        raise ValueError("non-finite spectral abscissa")
+    return x_star, max_res, alpha, _eval_criterion(alpha, sim_criterion)
+
 def _run_magnitude(plan: dict) -> dict:
     import sympy
     import numpy as np
@@ -254,8 +274,14 @@ def _run_magnitude(plan: dict) -> dict:
         return {"ok": False, "matched": "neither", "error": f"{type(e).__name__}: {e}"}
     return {"ok": False, "matched": "neither", "error": "no computation performed"}
 
-_SIM_REQUIRED = ["state_vars", "rhs", "init", "t_span", "dt", "observable", "sim_criterion", "robust_frac"]
-_SIM_CAPS = ["max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes"]
+_SIM_REQUIRED = {
+    "ode_integrate":    ["state_vars", "rhs", "init", "t_span", "dt", "observable", "sim_criterion", "robust_frac"],
+    "linear_stability": ["state_vars", "rhs", "fixed_point", "sim_criterion", "robust_frac", "param_sweep"],
+}
+_SIM_CAPS = {
+    "ode_integrate":    ["max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes"],
+    "linear_stability": ["max_grid_points", "max_state_vars", "max_expr_nodes"],
+}
 
 def _u(msg):
     return {"ok": False, "matched": "neither", "error": msg}
@@ -265,9 +291,12 @@ def _run_simulation(plan: dict) -> dict:
     import sympy
     import numpy as np
     from sympy.parsing.sympy_parser import parse_expr
-    if plan.get("primitive") != "ode_integrate":
-        return _u(f"unsupported primitive: {plan.get('primitive')}")
-    for f in _SIM_REQUIRED:
+    primitive = plan.get("primitive")
+    required = _SIM_REQUIRED.get(primitive)
+    caps = _SIM_CAPS.get(primitive)
+    if required is None:
+        return _u(f"unsupported primitive: {primitive}")
+    for f in required:
         if not plan.get(f):
             return _u(f"missing required field: {f}")
     ceil = plan.get("_sim_ceilings", {})
@@ -277,7 +306,7 @@ def _run_simulation(plan: dict) -> dict:
     if not all(k in ceil for k in _REQUIRED_CEILINGS):
         return _u("missing/incomplete sandbox ceilings (no run_plan injection)")
     # caps: positive, and not exceeding config ceilings
-    for cap in _SIM_CAPS:
+    for cap in caps:
         v = int(plan.get(cap, 0))
         if v <= 0:
             return _u(f"non-positive cap: {cap}")
@@ -325,61 +354,122 @@ def _run_simulation(plan: dict) -> dict:
                 return _u(f"rhs '{var}' exceeds max_expr_nodes")
             rhs_exprs.append((var, expr))
         var_index = {v: i for i, v in enumerate(state_vars)}
-        # grid + caps
-        grid = _build_grid(plan.get("param_sweep", {}), plan.get("init_sweep", {}), parse_num,
-                           max_grid_points=min(int(plan["max_grid_points"]), int(ceil["max_grid_points"])))
-        gsize = len(grid)
-        if gsize > int(plan["max_grid_points"]):
-            return _u("grid exceeds max_grid_points")
-        if ceil and gsize < int(ceil.get("min_grid_points", 0)):
-            return _u(f"grid size {gsize} < min_grid_points (not a sweep)")
-        t0, t1 = parse_num(plan["t_span"][0]), parse_num(plan["t_span"][1])
-        dt = parse_num(plan["dt"])
-        if dt <= 0 or t1 <= t0:
-            return _u("invalid t_span/dt")
-        n_steps = int(math.ceil((t1 - t0) / dt))
-        if n_steps > int(plan["max_steps"]):
-            return _u("n_steps exceeds max_steps")
-        if ceil and gsize * n_steps * n_arms > int(ceil.get("max_total_steps", 0)):
-            return _u(f"total work {gsize}*{n_steps}*{n_arms} exceeds max_total_steps")
-        # fixed params/init
-        base_params = {k: parse_num(v) for k, v in plan.get("params", {}).items()}
-        base_init = {k: parse_num(v) for k, v in plan["init"].items()}
-        null_parsed = {k: parse_num(v) for k, v in null_overrides.items()} if null_overrides else {}
-        rf = parse_num(plan["robust_frac"])
-        if not (0.0 < rf <= 1.0):
-            return _u(f"robust_frac must be in (0, 1]: {rf}")
-        passes = 0
-        detail = []                                 # per-grid-point audit table (persisted via stdout.txt)
-        for pov, iov in grid:                       # swept overrides fixed
-            env_base = {**base_params, **pov}
-            init_vals = {**base_init, **iov}
-            y0 = np.array([init_vals[v] for v in state_vars], dtype=float)
-            traj_m = _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
-            obs_m = _extract_observable(traj_m, var_index, plan["observable"], np)
-            crit_m = _eval_criterion(obs_m, plan["sim_criterion"])
-            if null_overrides:                      # discrimination: behavior present WITH, absent WITHOUT
-                env_null = {**env_base, **null_parsed}
-                traj_n = _rk4_integrate(rhs_exprs, var_index, env_null, y0, n_steps, dt, np, npfuncs)
-                obs_n = _extract_observable(traj_n, var_index, plan["observable"], np)
-                crit_n = _eval_criterion(obs_n, plan["sim_criterion"])
-                point_pass = bool(crit_m and not crit_n)
-                detail.append({"params": pov, "init": iov, "obs_mech": obs_m, "crit_mech": crit_m,
-                               "obs_null": obs_n, "crit_null": crit_n, "discriminate": point_pass})
+        if primitive == "ode_integrate":
+            # grid + caps
+            grid = _build_grid(plan.get("param_sweep", {}), plan.get("init_sweep", {}), parse_num,
+                               max_grid_points=min(int(plan["max_grid_points"]), int(ceil["max_grid_points"])))
+            gsize = len(grid)
+            if gsize > int(plan["max_grid_points"]):
+                return _u("grid exceeds max_grid_points")
+            if ceil and gsize < int(ceil.get("min_grid_points", 0)):
+                return _u(f"grid size {gsize} < min_grid_points (not a sweep)")
+            t0, t1 = parse_num(plan["t_span"][0]), parse_num(plan["t_span"][1])
+            dt = parse_num(plan["dt"])
+            if dt <= 0 or t1 <= t0:
+                return _u("invalid t_span/dt")
+            n_steps = int(math.ceil((t1 - t0) / dt))
+            if n_steps > int(plan["max_steps"]):
+                return _u("n_steps exceeds max_steps")
+            if ceil and gsize * n_steps * n_arms > int(ceil.get("max_total_steps", 0)):
+                return _u(f"total work {gsize}*{n_steps}*{n_arms} exceeds max_total_steps")
+            # fixed params/init
+            base_params = {k: parse_num(v) for k, v in plan.get("params", {}).items()}
+            base_init = {k: parse_num(v) for k, v in plan["init"].items()}
+            null_parsed = {k: parse_num(v) for k, v in null_overrides.items()} if null_overrides else {}
+            rf = parse_num(plan["robust_frac"])
+            if not (0.0 < rf <= 1.0):
+                return _u(f"robust_frac must be in (0, 1]: {rf}")
+            passes = 0
+            detail = []                                 # per-grid-point audit table (persisted via stdout.txt)
+            for pov, iov in grid:                       # swept overrides fixed
+                env_base = {**base_params, **pov}
+                init_vals = {**base_init, **iov}
+                y0 = np.array([init_vals[v] for v in state_vars], dtype=float)
+                traj_m = _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
+                obs_m = _extract_observable(traj_m, var_index, plan["observable"], np)
+                crit_m = _eval_criterion(obs_m, plan["sim_criterion"])
+                if null_overrides:                      # discrimination: behavior present WITH, absent WITHOUT
+                    env_null = {**env_base, **null_parsed}
+                    traj_n = _rk4_integrate(rhs_exprs, var_index, env_null, y0, n_steps, dt, np, npfuncs)
+                    obs_n = _extract_observable(traj_n, var_index, plan["observable"], np)
+                    crit_n = _eval_criterion(obs_n, plan["sim_criterion"])
+                    point_pass = bool(crit_m and not crit_n)
+                    detail.append({"params": pov, "init": iov, "obs_mech": obs_m, "crit_mech": crit_m,
+                                   "obs_null": obs_n, "crit_null": crit_n, "discriminate": point_pass})
+                else:
+                    point_pass = crit_m
+                    detail.append({"params": pov, "init": iov, "observable": obs_m, "pass": crit_m})
+                if point_pass:
+                    passes += 1
+            frac = passes / gsize
+            robust = frac >= rf
+            if null_overrides:
+                computed = f"discriminating: {passes}/{gsize} ({frac:.2f} >= {plan['robust_frac']})"
             else:
-                point_pass = crit_m
-                detail.append({"params": pov, "init": iov, "observable": obs_m, "pass": crit_m})
-            if point_pass:
-                passes += 1
-        frac = passes / gsize
-        robust = frac >= rf
-        if null_overrides:
-            computed = f"discriminating: {passes}/{gsize} ({frac:.2f} >= {plan['robust_frac']})"
-        else:
-            computed = f"robust: {passes}/{gsize} pass ({frac:.2f} >= {plan['robust_frac']})"
-        return {"ok": True, "computed": computed,
-                "matched": "confirm" if robust else "refute",
-                "detail": detail}
+                computed = f"robust: {passes}/{gsize} pass ({frac:.2f} >= {plan['robust_frac']})"
+            return {"ok": True, "computed": computed,
+                    "matched": "confirm" if robust else "refute",
+                    "detail": detail}
+        if primitive == "linear_stability":
+            if plan.get("init_sweep"):
+                return _u("linear_stability: init_sweep not allowed (param_sweep only)")
+            min_axis = int(ceil.get("min_points_per_axis", 0))
+            for name, spec in plan["param_sweep"].items():
+                if int(float(spec[2])) < min_axis:
+                    return _u(f"param_sweep axis '{name}' has < min_points_per_axis ({min_axis})")
+            fixed_point = plan["fixed_point"]
+            if set(fixed_point) != set(state_vars):
+                return _u("fixed_point keys must equal state_vars")
+            param_local = {n: sympy.Symbol(n) for n in
+                           (list(plan.get("params", {})) + list(plan.get("param_sweep", {})))}
+            param_syms = set(param_local.values())
+            fp_exprs = {}
+            for var in state_vars:                                  # parse over PARAM symbols only (no state vars)
+                src = str(fixed_point[var])
+                if "__" in src:
+                    return _u("rejected: '__' in fixed_point")
+                fe = parse_expr(src, local_dict=param_local, global_dict=glob, evaluate=True)
+                if not fe.free_symbols <= param_syms:
+                    return _u(f"fixed_point '{var}' references non-param symbol(s): {sorted(map(str, fe.free_symbols - param_syms))}")
+                if fe.count_ops() + 1 > int(plan["max_expr_nodes"]):
+                    return _u(f"fixed_point '{var}' exceeds max_expr_nodes")
+                fp_exprs[var] = fe
+            sv_syms = [sympy.Symbol(s) for s in state_vars]
+            jac_exprs = []                                          # symbolic Jacobian, once; post-diff node cap
+            for (_, expr) in rhs_exprs:
+                row = []
+                for sj in sv_syms:
+                    d = sympy.diff(expr, sj)
+                    if d.count_ops() + 1 > int(plan["max_expr_nodes"]):
+                        return _u("jacobian entry exceeds max_expr_nodes")
+                    row.append(d)
+                jac_exprs.append(row)
+            grid = _build_grid(plan["param_sweep"], {}, parse_num,
+                               max_grid_points=min(int(plan["max_grid_points"]), int(ceil["max_grid_points"])))
+            gsize = len(grid)
+            if gsize < int(ceil.get("min_grid_points", 0)):
+                return _u(f"grid size {gsize} < min_grid_points")
+            rf = parse_num(plan["robust_frac"])
+            if not (0.0 < rf <= 1.0):
+                return _u(f"robust_frac must be in (0, 1]: {rf}")
+            fp_tol = float(ceil["fixed_point_tol"])
+            base_params = {k: parse_num(val) for k, val in plan.get("params", {}).items()}
+            passes, detail, alphas = 0, [], []
+            for pov, _iov in grid:
+                params_env = {**base_params, **pov}
+                x_star, max_res, alpha, stable = _spectral_pass(
+                    jac_exprs, rhs_exprs, state_vars, fp_exprs, params_env, fp_tol, plan["sim_criterion"], np, npfuncs)
+                alphas.append(alpha)
+                if stable:
+                    passes += 1
+                detail.append({"params": pov, "fixed_point": x_star, "max_residual": max_res,
+                               "alpha": alpha, "pass": stable})
+            frac = passes / gsize
+            robust = frac >= rf
+            computed = (f"linear_stability: {passes}/{gsize} points satisfy criterion "
+                        f"(frac >= {plan['robust_frac']}); alpha in [{min(alphas):.4g}, {max(alphas):.4g}]")
+            return {"ok": True, "computed": computed,
+                    "matched": "confirm" if robust else "refute", "detail": detail}
     except Exception as e:                          # parse error, non-finite/complex, bad window, etc.
         return _u(f"{type(e).__name__}: {e}")
 

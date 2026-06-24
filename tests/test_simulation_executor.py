@@ -151,3 +151,61 @@ def test_projected_grid_cap_before_materializing_uncertain():
 def test_duplicate_state_vars_uncertain():
     v = run_plan(splan(state_vars=["x", "x"], rhs={"x": "-a*x"}, init={"x": "1.0"}), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+def lsplan(**kw):
+    base = dict(kind="simulation", primitive="linear_stability", state_vars=["x"],
+                rhs={"x": "-a*x"}, params={"a": "1.0"}, fixed_point={"x": "0"},
+                param_sweep={"a": ["0.5", "2.0", "6"]},
+                sim_criterion={"op": "lt", "threshold": ["0"]}, robust_frac="1",
+                max_grid_points=50, max_state_vars=4, max_expr_nodes=50)
+    base.update(kw)
+    return ComputationPlan(**base)
+
+def test_linstab_stable_confirm():
+    # dx/dt = -a*x, a in [0.5,2], equilibrium x*=0, alpha = -a < 0 -> stable everywhere -> confirm
+    v = run_plan(lsplan(), cfg())
+    assert v.verdict == "pass" and v.result.matched == "confirm"
+    assert "linear_stability" in v.measured and "alpha" in v.measured
+
+def test_linstab_instability_via_gt():
+    # criterion gt 0 with a>0 (alpha=-a<0) -> NOT > 0 -> refute (the homogeneous state is NOT unstable)
+    v = run_plan(lsplan(sim_criterion={"op": "gt", "threshold": ["0"]}), cfg())
+    assert v.verdict == "fail" and v.result.matched == "refute"
+
+def test_linstab_instability_onset_confirm():
+    # dx/dt = a*x with a>0 -> alpha = +a > 0 -> instability claim (gt 0) confirms
+    v = run_plan(lsplan(rhs={"x": "a*x"}, sim_criterion={"op": "gt", "threshold": ["0"]}), cfg())
+    assert v.verdict == "pass" and v.result.matched == "confirm"
+
+def test_linstab_parametric_fixed_point():
+    # f = a - b*x^2 -> x* = sqrt(a/b); Jacobian d f/dx = -2 b x = -2 sqrt(a b) < 0 -> stable
+    v = run_plan(lsplan(state_vars=["x"], rhs={"x": "a - b*x**2"}, params={"a": "1.0", "b": "1.0"},
+                        fixed_point={"x": "sqrt(a/b)"},
+                        param_sweep={"a": ["1.0", "4.0", "6"]}), cfg())
+    assert v.verdict == "pass" and v.result.matched == "confirm"
+
+def test_linstab_not_an_equilibrium_uncertain():
+    # x*=1 is NOT a root of -a*x (residual = -a*1 = -a != 0) -> uncertain
+    v = run_plan(lsplan(fixed_point={"x": "1"}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_linstab_fixed_point_keys_mismatch_uncertain():
+    v = run_plan(lsplan(state_vars=["x", "y"], rhs={"x": "-a*x", "y": "-a*y"}, fixed_point={"x": "0"}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok   # missing 'y' coordinate
+
+def test_linstab_fixed_point_references_state_var_uncertain():
+    v = run_plan(lsplan(fixed_point={"x": "x"}), cfg())    # references a state var -> circular
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_linstab_init_sweep_rejected_uncertain():
+    v = run_plan(lsplan(init_sweep={"x": ["0", "1", "5"]}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_linstab_per_axis_floor_uncertain():
+    # only 3 points on the swept axis, below min_points_per_axis (5) -> uncertain
+    v = run_plan(lsplan(param_sweep={"a": ["0.5", "2.0", "3"]}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_linstab_dunder_fixed_point_uncertain():
+    v = run_plan(lsplan(fixed_point={"x": "x.__class__"}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
