@@ -280,6 +280,9 @@ def _run_simulation(plan: dict) -> dict:
         # so RHS like "-a*x" parses; any free symbol OUTSIDE that declared set is rejected up front
         # (forbids arbitrary undeclared names — fail-closed, not deferred to an eval-time unbound error).
         allowed = list(state_vars) + list(plan.get("params", {}).keys()) + list(plan.get("param_sweep", {}).keys())
+        reserved = set(allowed) & set(_ALLOWED)
+        if reserved:
+            return _u(f"declared symbol(s) shadow reserved math names: {sorted(reserved)}")
         local = {n: sympy.Symbol(n) for n in allowed}
         allowed_syms = set(local.values())
         rhs_exprs = []

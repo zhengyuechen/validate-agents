@@ -62,3 +62,9 @@ def test_determinism():
     a = run_plan(splan(), cfg())
     b = run_plan(splan(), cfg())
     assert a.measured == b.measured and a.verdict == b.verdict
+
+def test_reserved_name_shadowing_uncertain():
+    # a state var named "E" would shadow Euler's number -> reject fail-closed, not silently mis-simulate
+    v = run_plan(splan(state_vars=["E"], rhs={"E": "-a*E"}, init={"E": "1.0"},
+                       observable={"name": "final_value", "var": "E", "window_frac": "0.1"}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
