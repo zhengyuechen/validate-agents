@@ -203,6 +203,53 @@ def _converged_monotone(seq, rtol):
         return False
     return mags[-1] / abs(last) < rtol
 
+def _bounded_observe(rhs_exprs, var_index, env_base, y0, n_steps, dt, observable, bound, t_end,
+                     max_halvings, conv_rtol, per_refine_max_steps, np, npfuncs):
+    """§3 honesty check for ONE grid point of a bounded claim (max_abs, op='le', threshold=bound).
+    Returns (verdict, info, steps_used). verdict in {'bounded','unbounded','uncertain'}. A refuting point
+    (overflow OR finite max_abs>bound) refutes ONLY if its refuting quantity converges monotone+shrinking
+    (and, for a divergence, t* is non-receding and strictly inside the window). Anything else -> uncertain.
+    Raises propagate -> uncertain upstream. Deterministic: fixed dt->dt/2 sequence; integer step budget."""
+    def classify(ns, h):
+        traj, overflow = _rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, ns, h, np, npfuncs)
+        if overflow is not None:
+            return "div", overflow * h
+        m = _extract_observable(traj, var_index, observable, np)
+        return ("breach", m) if m > bound else ("bounded", m)
+
+    steps_used = n_steps
+    kind, q0 = classify(n_steps, dt)
+    if kind == "bounded":
+        return "bounded", {"max_abs": q0, "t_star": None, "refinements": 0}, steps_used
+    seq = [q0]
+    for k in range(1, max_halvings + 1):
+        n_k = n_steps * (2 ** k)
+        if n_k > per_refine_max_steps:
+            return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None,
+                                 "refinements": k - 1}, steps_used
+        steps_used += n_k
+        rk, rq = classify(n_k, dt / (2 ** k))
+        if rk == "bounded":                                  # refutation vanished under refinement -> artifact
+            note = q0 if kind == "breach" else "diverged_unconfirmed"
+            return "uncertain", {"max_abs": note, "t_star": None, "refinements": k}, steps_used
+        if rk != kind:                                       # divergence<->breach morph -> receding -> artifact
+            return "uncertain", {"max_abs": "morph_unconfirmed", "t_star": None, "refinements": k}, steps_used
+        seq.append(rq)
+    refs = len(seq) - 1
+    if kind == "div":
+        # Finding A: rely on _converged_monotone (its shrinking test already rejects a receding t_of) + the §3b
+        # window guard. A "seq[-1] <= seq[0]" clause would assume t_of approaches t* FROM ABOVE and would
+        # false-uncertain a genuine singularity whose numerical t_of converges from below — drop it.
+        converged = (_converged_monotone(seq, conv_rtol)
+                     and seq[-1] < t_end * (1.0 - conv_rtol))               # §3b: t* strictly inside the window
+        if converged:
+            return "unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": refs}, steps_used
+        return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used
+    # kind == "breach"
+    if _converged_monotone(seq, conv_rtol) and seq[-1] > bound:
+        return "unbounded", {"max_abs": seq[-1], "t_star": None, "refinements": refs}, steps_used
+    return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used
+
 def _extract_observable(traj, var_index, observable, np):
     import math
     name = observable.get("name"); var = observable.get("var")

@@ -214,3 +214,81 @@ def test_linstab_per_axis_floor_uncertain():
 def test_linstab_dunder_fixed_point_uncertain():
     v = run_plan(lsplan(fixed_point={"x": "x.__class__"}), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+# ---------------------------------------------------------------------------
+# Task-5 tests: _bounded_observe and helpers
+# ---------------------------------------------------------------------------
+
+def _bexprs(rhs_by_var, state_vars, params=()):
+    import sympy
+    from sympy.parsing.sympy_parser import parse_expr
+    local = {n: sympy.Symbol(n) for n in list(state_vars) + list(params)}
+    return [(v, parse_expr(rhs_by_var[v], local_dict=local, evaluate=True)) for v in state_vars]
+
+def _bounded(rhs_by_var, state_vars, env, y0, n_steps, dt, bound, t_end,
+            params=(), max_halvings=3, conv_rtol=0.1, per_refine_max_steps=200_000):
+    import sympy, numpy as np
+    from valagents.sandbox.runner import _bounded_observe, _npfuncs
+    rhs = _bexprs(rhs_by_var, state_vars, params)
+    vi = {v: i for i, v in enumerate(state_vars)}
+    obs = {"name": "max_abs", "var": state_vars[0], "window_frac": "1.0"}
+    return _bounded_observe(rhs, vi, env, y0, n_steps, dt, obs, bound, t_end,
+                            max_halvings, conv_rtol, per_refine_max_steps, np, _npfuncs(sympy, np))
+
+def test_bounded_observe_bounded_accepts():
+    # decaying x stays well under bound 2 -> bounded at base dt, no refinement
+    verdict, info, steps = _bounded({"x": "-x"}, ["x"], {}, [1.0], 500, 0.01, bound=2.0, t_end=5.0)
+    assert verdict == "bounded" and info["refinements"] == 0
+
+def test_bounded_observe_confirmed_divergence_refutes():
+    # x' = x^2, x0=1 -> singularity at t*=1; t_of converges across refinements -> unbounded
+    verdict, info, steps = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 3000, 0.001, bound=10.0, t_end=2.0)
+    assert verdict == "unbounded" and info["max_abs"] == "diverged"
+    assert 0.9 < info["t_star"] < 1.1
+
+def test_bounded_observe_stiff_artifact_uncertain():
+    # x' = -lam*x with base dt*lam above the RK4 stability boundary (~2.78): numerically unstable but TRULY
+    # bounded. Either a finer dt becomes bounded, or t_of recedes -> NOT a refutation.
+    # lam=200, dt=0.02 -> lam*dt=4.0 > 2.78 (unstable); halving once: lam*(dt/2)=2.0 < 2.78 (stable).
+    # Base diverges (kind="div"); first refinement is bounded -> "diverged_unconfirmed" -> uncertain.
+    verdict, info, steps = _bounded({"x": "-200.0*x"}, ["x"], {}, [1.0], 200, 0.02, bound=2.0, t_end=4.0)
+    assert verdict == "uncertain"           # the load-bearing soundness test: stiff != divergent
+
+def test_bounded_observe_tstar_near_tend_uncertain():
+    # same x'=x^2 singularity at t*=1, but t_span ends right at ~1 -> t* within conv_rtol of t_end -> uncertain
+    verdict, info, steps = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 1000, 0.001, bound=10.0, t_end=1.0)
+    assert verdict == "uncertain"
+
+def test_bounded_observe_budget_exhausted_uncertain():
+    # a refuting (diverging) point but per_refine_max_steps too small to take >=2 refinements -> budget exhausted
+    verdict, info, steps = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 3000, 0.001, bound=10.0, t_end=2.0,
+                                    per_refine_max_steps=4000)   # base 3000 ok, but 2x=6000 > 4000 -> stop
+    assert verdict == "uncertain" and info["max_abs"] == "refine_budget_exhausted"
+
+def test_converged_monotone_from_below():
+    # direction-agnostic pinning test: convergence FROM BELOW is accepted
+    # (the div branch relies on _converged_monotone NOT assuming an approach side)
+    from valagents.sandbox.runner import _converged_monotone
+    assert _converged_monotone([0.9, 0.99, 1.0], 0.1) is True
+
+def test_bounded_observe_breach_converging_unbounded():
+    # A system whose finite max_abs exceeds bound AND converges across refinements -> unbounded.
+    # x' = 0, x(0) = 3.0; bound = 2.0. max_abs = 3.0 at every refinement level (constant trajectory).
+    # seq = [3.0, 3.0, 3.0, 3.0] (base + 3 halvings). Deltas all zero -> monotone; mags non-increasing.
+    # But last delta is 0 and last = 3.0, so mags[-1]/|last| = 0/3.0 = 0.0 < conv_rtol=0.1 -> converged.
+    # seq[-1]=3.0 > bound=2.0 -> unbounded.
+    verdict, info, steps = _bounded({"x": "0"}, ["x"], {}, [3.0], 100, 0.01, bound=2.0, t_end=1.0,
+                                    max_halvings=3, conv_rtol=0.1)
+    assert verdict == "unbounded" and info["max_abs"] == 3.0
+
+def test_bounded_observe_breach_artifact_uncertain():
+    # A coarse-dt numerical artifact breach that vanishes at finer dt -> uncertain.
+    # x' = -5*x, x(0)=0.3, bound=0.5. True trajectory decays from 0.3 -> 0; true max_abs=0.3 < 0.5 (bounded).
+    # lam=5, dt=0.6: lam*dt=3.0 > 2.78 (RK4 stability boundary). The stiff-unstable scheme causes the coarse
+    # trajectory to grow to ~175 (a finite numerical artifact, below _DIVERGENCE_MAG=1e100 -> classified as
+    # "breach" not "div"). At k=1 (dt=0.3, lam*dt=1.5 < 2.78) the scheme is stable and max_abs=0.3 < 0.5
+    # (bounded) -> refutation vanished -> uncertain. y0=0.3 < bound=0.5 ensures initial condition is not itself
+    # the breach source.
+    verdict, info, steps = _bounded({"x": "-5.0*x"}, ["x"], {}, [0.3], 20, 0.6, bound=0.5, t_end=12.0,
+                                    max_halvings=3, conv_rtol=0.1)
+    assert verdict == "uncertain"
