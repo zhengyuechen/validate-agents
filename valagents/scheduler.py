@@ -2,6 +2,7 @@
 from __future__ import annotations
 from valagents.store import ArtifactStore
 from valagents.config import Config
+from valagents.artifact import IdeaArtifact
 from valagents.agents.formalizer import formalize
 from valagents.agents.faithfulness import faithfulness_check
 from valagents.agents.decomposer import decompose
@@ -65,7 +66,13 @@ async def run_entry_gates(store: ArtifactStore, raw_idea: str, backend, llm, cfg
 
 
 from valagents.agents.grounder import ground_claim
-from valagents.agents.prover import prove_claim
+from valagents.agents.grounder import ground_novelty
+from valagents.agents.prover import prove_claim, build_derivation
+from valagents.agents.predictor import predict
+from valagents.agents.redteam import red_team
+from valagents.agents.validation_designer import design_validation
+from valagents.agents.repairer import repair
+from valagents.agents.arbiter import arbitrate
 
 _LENS_BY_TYPE: dict[str, list[str]] = {
     "definitional": ["prover"],
@@ -110,3 +117,82 @@ async def run_claim_checks(store: ArtifactStore, backend, llm, cfg: Config, tick
                 store.record({"event": "fanout_limited", "claim": claim.id})
 
         claim.exhausted = True
+
+    if fc is not None:
+        store.set("derivation", await build_derivation(fc, art.claim_graph, llm, cfg))
+
+
+def _repair_targets(art: IdeaArtifact) -> list[str]:
+    targets: set[str] = set()
+    for attack in art.attacks:
+        if (
+            attack.status == "landed"
+            and attack.severity in ("fatal", "major")
+            and attack.target_claim_id
+        ):
+            targets.add(attack.target_claim_id)
+    if art.derivation is not None:
+        targets.update(gap.claim_id for gap in art.derivation.gaps if gap.fatal)
+    return sorted(targets)
+
+
+def _apply_repair_statements(art: IdeaArtifact, repaired: dict | None, targets: list[str]) -> None:
+    if repaired is None:
+        return
+    allowed = set(targets)
+    new_statements = repaired.get("new_statements", {})
+    for claim in art.claim_graph:
+        if claim.id in allowed and claim.id in new_statements:
+            claim.statement = new_statements[claim.id]
+
+
+async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config, tick: int) -> None:
+    art = store.current
+    if art.formal_claim is None:
+        return
+    novelty = await ground_novelty(art.formal_claim, backend, llm, cfg)
+    if novelty is not None:
+        store.set("novelty", novelty)
+    store.set("predictions", await predict(art.formal_claim, novelty, llm, cfg))
+    attacks, surface, per_claim = await red_team(art, llm, cfg, tick=tick)
+    store.set("attacks", attacks)
+    store.set("attack_surface", surface)
+    claim_ids = {claim.id for claim in art.claim_graph}
+    for claim_id, record in per_claim:
+        if claim_id in claim_ids:
+            store.add_check(claim_id, record)
+    store.set("validation_plan", await design_validation(art, llm, cfg))
+
+
+async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
+    store = ArtifactStore(IdeaArtifact(raw_idea=raw_idea))
+    if not await run_entry_gates(store, raw_idea, backend, llm, cfg):
+        return store.current
+
+    await run_claim_checks(store, backend, llm, cfg)
+    await _whole_artifact_lenses(store, backend, llm, cfg, tick=1000)
+
+    while store.current.repairs_spent < cfg.gate.repair_cap:
+        targets = _repair_targets(store.current)
+        if not targets:
+            break
+
+        repaired = await repair(store.current, targets, llm, cfg)
+        store.fork_for_repair(targets)
+        _apply_gate_cfg(store.current, cfg)
+        _apply_repair_statements(store.current, repaired, targets)
+        store.record({"event": "repair", "targets": targets, "ok": repaired is not None})
+
+        version = store.current.version_id
+        await run_claim_checks(store, backend, llm, cfg, tick0=2000 * version)
+        await _whole_artifact_lenses(store, backend, llm, cfg, tick=3000 * version)
+
+    store.current.finalized = True
+    verdict = await arbitrate(store.current, llm, cfg)
+    store.record({
+        "event": "final",
+        "status": store.current.status,
+        "load_bearing": store.current.load_bearing,
+        "agrees": verdict["agrees"],
+    })
+    return store.current

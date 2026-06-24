@@ -1857,7 +1857,7 @@ async def run_claim_checks(store, backend, llm, cfg, tick0: int = 0) -> None:
 **Interfaces:**
 - Produces: `async run(raw_idea, llm, cfg, backend=None) -> IdeaArtifact` — the full pipeline. After `run_entry_gates` + `run_claim_checks`: run Grounder-novelty, Predictor, Red-team (apply attacks + surface + per-claim redteam checks), Validation-designer. Then the **repair loop**: while a fatal/major attack landed or a fatal gap exists and `repairs_spent < repair_cap`, `fork_for_repair` the affected targets, re-run their claim checks + Red-team, until clean or cap. Then set `finalized=True`, run the Arbiter, return `store.current`.
 
-- [ ] **Step 1: Write failing tests** `tests/test_scheduler_repair.py`:
+- [x] **Step 1: Write failing tests** `tests/test_scheduler_repair.py`:
 
 ```python
 from valagents.scheduler import run
@@ -1902,9 +1902,9 @@ async def test_thin_surface_needs_experiment(cfg):
     assert art.status == "needs_experiment" and art.blocker["reason"] == "thin_attack_surface"
 ```
 
-- [ ] **Step 2: Run → FAIL.**
+- [x] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Append to `valagents/scheduler.py`.**
+- [x] **Step 3: Append to `valagents/scheduler.py`.**
 
 ```python
 from valagents.artifact import IdeaArtifact
@@ -1966,9 +1966,9 @@ async def run(raw_idea: str, llm, cfg, backend=None) -> IdeaArtifact:
 
 Implementer note: the loop re-forks while landed fatal/major attacks remain. When the cap is hit with a fatal attack still landed, the loop exits and `finalized=True` makes the gate compute `refuted` (D5) — no special-case code. Confirm `test_fatal_attack_through_cap_refuted` asserts exactly this.
 
-- [ ] **Step 4: Run → PASS.** `pytest tests/test_scheduler_repair.py -v` → 3 passed. Run the full suite: `pytest -q`.
+- [x] **Step 4: Run → PASS.** `pytest tests/test_scheduler_repair.py -v` → 3 passed. Run the full suite: `pytest -q`.
 
-- [ ] **Step 5: Commit.** `git add -A && git commit -m "feat(scheduler): whole-artifact lenses + repair-versioning loop + finalize"`
+- [x] **Step 5: Commit.** `git add -A && git commit -m "feat(scheduler): whole-artifact lenses + repair-versioning loop + finalize"`
 
 ---
 
