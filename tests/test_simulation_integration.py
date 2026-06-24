@@ -120,3 +120,34 @@ async def test_behavior_without_mechanism_challenges():
     sims = [a for a in s.current.attacks if a.type == "simulation"]
     assert sims and sims[0].status == "landed" and sims[0].severity == "fatal"
     assert s.current.verdict_class == "challenged"
+
+NUMERIC_PLAN = {
+    "primitive": "ode_integrate", "state_vars": ["x"], "rhs": {"x": "-a*x"},
+    "params": {"a": 1.0}, "init": {"x": 1.0}, "t_span": [0, 5], "dt": 0.01,
+    "param_sweep": {"a": [0.8, 1.2, 5]},
+    "observable": {"name": "final_value", "var": "x", "window_frac": 0.1},
+    "sim_criterion": {"op": "le", "threshold": [0.2]}, "robust_frac": 0.8,
+    "max_steps": 2000, "max_grid_points": 50, "max_state_vars": 4, "max_expr_nodes": 50,
+    "null_overrides": {"a": 0},
+}
+NUMERIC_BODY = "```json\n" + json.dumps(NUMERIC_PLAN) + "\n```"
+
+async def test_designer_coerces_numeric_json_values():
+    s = _store()
+    p = await design_simulation(s.current.claim_graph[0], s.current, router(NUMERIC_BODY), cfg())
+    assert p is not None                                   # was None before the fix (ValidationError swallowed)
+    assert p.dt == "0.01"                                  # float scalar -> str
+    assert p.params == {"a": "1.0"} and p.init == {"x": "1.0"}   # dict[str,str] values coerced
+    assert p.null_overrides == {"a": "0"}                  # null_overrides numeric value coerced
+    assert p.param_sweep == {"a": ["0.8", "1.2", "5"]}     # nested sweep values coerced
+    assert p.t_span == ["0", "5"]                          # list[str] elements coerced
+    assert p.sim_criterion == {"op": "le", "threshold": ["0.2"]}   # nested threshold coerced
+    assert p.robust_frac == "0.8"
+    assert p.max_steps == 2000 and p.max_grid_points == 50 # int caps stay ints (NOT stringified)
+
+async def test_numeric_json_plan_runs_end_to_end():
+    # the coerced plan must actually execute (discriminating, since null_overrides a=0) -> a real attack, not a silent skip
+    s = _store()
+    await run_simulation_checks(s, router(NUMERIC_BODY), cfg())
+    sims = [a for a in s.current.attacks if a.type == "simulation"]
+    assert sims and sims[0].status in ("survived", "landed")   # plan ran (not dropped to None)

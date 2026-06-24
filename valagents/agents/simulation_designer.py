@@ -11,6 +11,22 @@ _FIELDS = ("primitive", "state_vars", "rhs", "params", "init", "param_sweep", "i
            "t_span", "dt", "observable", "sim_criterion", "robust_frac",
            "max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes", "null_overrides")
 
+# The four cap fields are typed int on ComputationPlan — leave them as JSON numbers; everything else
+# (str / dict[str,str] / list[str], possibly nested) must be stringified because Pydantic v2 won't coerce.
+_INT_CAPS = ("max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes")
+
+def _stringify_scalars(value):
+    """Recursively coerce leaf numbers/bools to strings, preserving dict/list structure."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _stringify_scalars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_stringify_scalars(v) for v in value]
+    return value
+
 def _extract_json(text: str):
     blocks = re.findall(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
     if not blocks:
@@ -31,7 +47,8 @@ async def design_simulation(claim, art, llm, cfg) -> ComputationPlan | None:
     if not isinstance(data, dict):
         return None
     fields = {k: data[k] for k in _FIELDS if k in data}     # accept only known keys (ignore extras)
+    coerced = {k: (v if k in _INT_CAPS else _stringify_scalars(v)) for k, v in fields.items()}
     try:
-        return ComputationPlan(kind="simulation", target_claim_id=claim.id, **fields)
+        return ComputationPlan(kind="simulation", target_claim_id=claim.id, **coerced)
     except Exception:
         return None
