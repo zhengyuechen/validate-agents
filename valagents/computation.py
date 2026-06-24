@@ -111,7 +111,8 @@ def verdict_to_attack(v: "ComputationVerdict", target_claim_id, discriminating: 
 def verdict_to_sim_attack(v: "ComputationVerdict", target_claim_id, fatal_eligible: bool, tick: int = 0):
     """Map an executed simulation ComputationVerdict to an Attack(type='simulation'). No LLM (F3).
     Call ONLY on a decisive verdict. confirm -> survived/minor (DISCOUNTED positive); refute -> landed,
-    fatal iff fatal_eligible (target claim load_bearing AND role=='novel_core') else major. Never refutes."""
+    fatal iff fatal_eligible (target claim load_bearing AND role=='novel_core') else major.
+    The executor 'refute' (criterion not met) becomes a LANDED attack -> the gate reads it as 'challenged', never 'refuted'."""
     from valagents.artifact import Attack
     if v.result.matched == "confirm":
         status, severity = "survived", "minor"
@@ -119,9 +120,11 @@ def verdict_to_sim_attack(v: "ComputationVerdict", target_claim_id, fatal_eligib
         status, severity = "landed", ("fatal" if fatal_eligible else "major")
     obs = v.plan.observable or {}
     crit = v.plan.sim_criterion or {}
+    thr_raw = crit.get("threshold", [])
+    thr = " ".join(str(x) for x in thr_raw) if thr_raw else "?"
     basis = (f"simulation/{v.plan.primitive}: {v.measured or '?'}; "
              f"observable = {obs.get('name', '?')}({obs.get('var', '?')}); "
-             f"criterion = {crit.get('op', '?')} {crit.get('threshold', '?')}; "
+             f"criterion = {crit.get('op', '?')} {thr}; "
              f"robust_frac = {v.plan.robust_frac or 'n/a'}")
     return Attack(type="simulation", severity=severity, status=status,
                   target_claim_id=target_claim_id, basis=basis)

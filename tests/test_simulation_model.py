@@ -33,6 +33,7 @@ def test_refute_eligible_is_landed_fatal():
     a = verdict_to_sim_attack(_sv("refute"), target_claim_id="c1", fatal_eligible=True)
     assert a.status == "landed" and a.severity == "fatal" and a.target_claim_id == "c1"
     assert "simulation" in a.basis and "final_value" in a.basis
+    assert "['" not in a.basis  # no Python list repr leaked into the basis
 
 def test_refute_not_eligible_is_landed_major():
     a = verdict_to_sim_attack(_sv("refute"), target_claim_id="c1", fatal_eligible=False)
