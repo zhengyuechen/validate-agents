@@ -58,9 +58,12 @@ def _run_magnitude(plan: dict) -> dict:
     required = _MAG_REQUIRED.get(ck)
     if required is None:
         return {"ok": False, "matched": "neither", "error": f"unsupported comparison_kind: {ck}"}
-    for field in required:                        # fail-closed: quantity AND source must be present
-        if not str(plan.get(field, "")).strip():
+    for field in required:                        # fail-closed: quantity AND source must be present...
+        val = str(plan.get(field, "")).strip()
+        if not val:
             return {"ok": False, "matched": "neither", "error": f"missing required field: {field}"}
+        if "|" in val:                            # ...and a '|' means an empty field spilled in parse_tail (defense-in-depth)
+            return {"ok": False, "matched": "neither", "error": f"separator leaked into field: {field}"}
     glob = {n: getattr(sympy, n) for n in _ALLOWED}
     glob["__builtins__"] = {}
     try:

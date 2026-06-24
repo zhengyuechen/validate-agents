@@ -94,3 +94,10 @@ def test_discriminating_zero_uncertainty_is_uncertain():
 def test_discriminating_dunder_is_uncertain_not_executed():
     v = run_plan(dplan(closest_prior_effect="x.__class__"), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+
+def test_runner_rejects_pipe_spilled_source_backstop():   # defense-in-depth: sandbox catches a spilled source
+    v = run_plan(bplan(bound_source="| CONFIRM_IF: p<=bound"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+    v2 = run_plan(dplan(closest_prior_source="| UNCERTAINTY: 1e-9"), cfg())
+    assert v2.verdict == "uncertain" and not v2.result.ok
