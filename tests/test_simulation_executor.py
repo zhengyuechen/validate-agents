@@ -75,3 +75,44 @@ def test_reserved_name_shadowing_uncertain():
     v = run_plan(splan(state_vars=["E"], rhs={"E": "-a*E"}, init={"E": "1.0"},
                        observable={"name": "final_value", "var": "E", "window_frac": "0.1"}), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+def test_single_arm_backward_compat():
+    # no null_overrides -> v1 single-arm; computed keeps the v1 "robust: ... pass" format
+    v = run_plan(splan(), cfg())
+    assert v.verdict == "pass" and "robust" in v.measured and "pass" in v.measured
+    assert "discriminating" not in v.measured
+
+def test_discriminating_pass():
+    # mechanism (a in [0.8,1.2]) decays x below 0.2; null (a=0) leaves x at 1.0 (criterion fails) -> discriminate
+    v = run_plan(splan(null_overrides={"a": "0"}), cfg())
+    assert v.verdict == "pass" and v.result.matched == "confirm"
+    assert "discriminating" in v.measured
+
+def test_behavior_without_mechanism_refutes():
+    # loose criterion (<=2.0) is met in BOTH arms (x stays <2 even with a=0) -> not attributable -> refute
+    v = run_plan(splan(null_overrides={"a": "0"}, sim_criterion={"op": "le", "threshold": ["2.0"]}), cfg())
+    assert v.verdict == "fail" and v.result.matched == "refute"
+
+def test_behavior_absent_with_mechanism_refutes():
+    # tight criterion (<=1e-9) is NOT met even in the mechanism arm -> not discriminating -> refute
+    v = run_plan(splan(null_overrides={"a": "0"}, sim_criterion={"op": "le", "threshold": ["1e-9"]}), cfg())
+    assert v.verdict == "fail" and v.result.matched == "refute"
+
+def test_null_override_undeclared_param_uncertain():
+    v = run_plan(splan(null_overrides={"zzz": "0"}), cfg())   # zzz is not a declared param
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_null_override_state_var_uncertain():
+    v = run_plan(splan(null_overrides={"x": "0"}), cfg())     # x is a state var, not a param
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_null_arm_blowup_uncertain():
+    # null arm a=-1e6 -> dx/dt = 1e6*x -> blows up -> non-finite in the null arm -> uncertain
+    v = run_plan(splan(null_overrides={"a": "-1e6"}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_total_work_counts_both_arms():
+    # grid 120 * n_steps 10_000 = 1.2M (< 2M for 1 arm) but 2.4M at x2 -> total-work cap fires in discrimination
+    v = run_plan(splan(null_overrides={"a": "0"}, param_sweep={"a": ["0.8", "1.2", "120"]},
+                       t_span=["0", "10"], dt="0.001", max_steps=200_000, max_grid_points=400), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok

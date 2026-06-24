@@ -35,6 +35,7 @@ class ComputationPlan(BaseModel):
     init: dict[str, str] = {}
     param_sweep: dict[str, list[str]] = {}
     init_sweep: dict[str, list[str]] = {}
+    null_overrides: dict[str, str] = {}   # negative-control: param -> off-value; non-empty -> discrimination mode
     t_span: list[str] = []
     dt: str = ""
     observable: dict = {}

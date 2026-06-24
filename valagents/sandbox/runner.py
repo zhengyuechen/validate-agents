@@ -287,6 +287,12 @@ def _run_simulation(plan: dict) -> dict:
         reserved = set(allowed) & set(_ALLOWED)
         if reserved:
             return _u(f"declared symbol(s) shadow reserved math names: {sorted(reserved)}")
+        null_overrides = plan.get("null_overrides", {})
+        declared_params = set(plan.get("params", {})) | set(plan.get("param_sweep", {}))
+        bad_null = set(null_overrides) - declared_params
+        if bad_null:                                  # NC-D4: a null override may only touch a declared coupling param
+            return _u(f"null_overrides reference undeclared/non-param names: {sorted(bad_null)}")
+        n_arms = 2 if null_overrides else 1
         local = {n: sympy.Symbol(n) for n in allowed}
         allowed_syms = set(local.values())
         rhs_exprs = []
@@ -317,29 +323,43 @@ def _run_simulation(plan: dict) -> dict:
         n_steps = int(math.ceil((t1 - t0) / dt))
         if n_steps > int(plan["max_steps"]):
             return _u("n_steps exceeds max_steps")
-        if ceil and gsize * n_steps > int(ceil.get("max_total_steps", 0)):
-            return _u(f"total work {gsize}*{n_steps} exceeds max_total_steps")
+        if ceil and gsize * n_steps * n_arms > int(ceil.get("max_total_steps", 0)):
+            return _u(f"total work {gsize}*{n_steps}*{n_arms} exceeds max_total_steps")
         # fixed params/init
         base_params = {k: parse_num(v) for k, v in plan.get("params", {}).items()}
         base_init = {k: parse_num(v) for k, v in plan["init"].items()}
+        null_parsed = {k: parse_num(v) for k, v in null_overrides.items()}
         passes = 0
         detail = []                                 # per-grid-point audit table (persisted via stdout.txt)
         for pov, iov in grid:                       # swept overrides fixed
             env_base = {**base_params, **pov}
             init_vals = {**base_init, **iov}
             y0 = np.array([init_vals[v] for v in state_vars], dtype=float)
-            traj = _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
-            obs = _extract_observable(traj, var_index, plan["observable"], np)
-            ok_pt = _eval_criterion(obs, plan["sim_criterion"])
-            if ok_pt:
+            traj_m = _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
+            obs_m = _extract_observable(traj_m, var_index, plan["observable"], np)
+            crit_m = _eval_criterion(obs_m, plan["sim_criterion"])
+            if null_overrides:                      # discrimination: behavior present WITH, absent WITHOUT
+                env_null = {**env_base, **null_parsed}
+                traj_n = _rk4_integrate(rhs_exprs, var_index, env_null, y0, n_steps, dt, np, npfuncs)
+                obs_n = _extract_observable(traj_n, var_index, plan["observable"], np)
+                crit_n = _eval_criterion(obs_n, plan["sim_criterion"])
+                point_pass = bool(crit_m and not crit_n)
+                detail.append({"params": pov, "init": iov, "obs_mech": obs_m, "crit_mech": crit_m,
+                               "obs_null": obs_n, "crit_null": crit_n, "discriminate": point_pass})
+            else:
+                point_pass = crit_m
+                detail.append({"params": pov, "init": iov, "observable": obs_m, "pass": crit_m})
+            if point_pass:
                 passes += 1
-            detail.append({"params": pov, "init": iov, "observable": obs, "pass": ok_pt})
         frac = passes / gsize
         robust = frac >= parse_num(plan["robust_frac"])
-        return {"ok": True,
-                "computed": f"robust: {passes}/{gsize} pass ({frac:.2f} >= {plan['robust_frac']})",
+        if null_overrides:
+            computed = f"discriminating: {passes}/{gsize} ({frac:.2f} >= {plan['robust_frac']})"
+        else:
+            computed = f"robust: {passes}/{gsize} pass ({frac:.2f} >= {plan['robust_frac']})"
+        return {"ok": True, "computed": computed,
                 "matched": "confirm" if robust else "refute",
-                "detail": detail}                   # ignored by ComputationResult; saved in stdout.txt artifact
+                "detail": detail}
     except Exception as e:                          # parse error, non-finite/complex, bad window, etc.
         return _u(f"{type(e).__name__}: {e}")
 
