@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 class ComputationPlan(BaseModel):
-    kind: Literal["symbolic", "magnitude"] = "symbolic"
+    kind: Literal["symbolic", "magnitude", "simulation"] = "symbolic"
     # --- symbolic (now defaulted so magnitude plans omit them) ---
     expression: str = ""
     variables: list[str] = []
@@ -27,6 +27,25 @@ class ComputationPlan(BaseModel):
     threshold: str = ""
     target_claim_id: str | None = None
     discriminating: bool = False
+    # --- simulation (kind="simulation") ---
+    primitive: Literal["ode_integrate", "iterated_map", "monte_carlo", "linear_stability"] | None = None
+    state_vars: list[str] = []
+    rhs: dict[str, str] = {}
+    params: dict[str, str] = {}
+    init: dict[str, str] = {}
+    param_sweep: dict[str, list[str]] = {}
+    init_sweep: dict[str, list[str]] = {}
+    t_span: list[str] = []
+    dt: str = ""
+    observable: dict = {}
+    sim_criterion: dict = {}        # structured pass/fail rule (criterion Literal is taken by symbolic/magnitude)
+    robust_frac: str = ""
+    max_steps: int = 0
+    max_grid_points: int = 0
+    max_state_vars: int = 0
+    max_expr_nodes: int = 0
+    # NOTE: max_total_steps is CONFIG-ONLY (SimCfg, Task 4) — a derived ceiling on grid_size x n_steps.
+    #       Do NOT add it to ComputationPlan; it is never a plan-declared field.
     # --- criterion / glosses (shared) ---
     criterion: Literal["symbolic_equality", "magnitude"] = "symbolic_equality"
     confirm_if: str = ""
@@ -86,4 +105,23 @@ def verdict_to_attack(v: "ComputationVerdict", target_claim_id, discriminating: 
                  f"sensitivity = {v.plan.sensitivity or 'n/a'} "
                  f"(source: {v.plan.sensitivity_source or 'n/a'}); threshold = {v.plan.threshold or 'n/a'}")
     return Attack(type="magnitude", severity=severity, status=status,
+                  target_claim_id=target_claim_id, basis=basis)
+
+
+def verdict_to_sim_attack(v: "ComputationVerdict", target_claim_id, fatal_eligible: bool, tick: int = 0):
+    """Map an executed simulation ComputationVerdict to an Attack(type='simulation'). No LLM (F3).
+    Call ONLY on a decisive verdict. confirm -> survived/minor (DISCOUNTED positive); refute -> landed,
+    fatal iff fatal_eligible (target claim load_bearing AND role=='novel_core') else major. Never refutes."""
+    from valagents.artifact import Attack
+    if v.result.matched == "confirm":
+        status, severity = "survived", "minor"
+    else:  # "refute" — the mechanism failed its own preregistered toy demonstration
+        status, severity = "landed", ("fatal" if fatal_eligible else "major")
+    obs = v.plan.observable or {}
+    crit = v.plan.sim_criterion or {}
+    basis = (f"simulation/{v.plan.primitive}: {v.measured or '?'}; "
+             f"observable = {obs.get('name', '?')}({obs.get('var', '?')}); "
+             f"criterion = {crit.get('op', '?')} {crit.get('threshold', '?')}; "
+             f"robust_frac = {v.plan.robust_frac or 'n/a'}")
+    return Attack(type="simulation", severity=severity, status=status,
                   target_claim_id=target_claim_id, basis=basis)
