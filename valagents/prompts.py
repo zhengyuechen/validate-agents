@@ -377,9 +377,17 @@ mechanism's coupling as a named parameter and give its OFF-value in null_overrid
 null_overrides {{"g": "0"}}); the executor then requires the behavior to appear WITH the mechanism and vanish \
 WITHOUT it. Omit null_overrides only if the mechanism cannot be turned off by a parameter.
 
+Alternatively, for a LINEAR-STABILITY claim (primitive "linear_stability"): give the RHS and the parameters, \
+DERIVE the equilibrium and preregister it as fixed_point — one coordinate per state var, each a formula in the \
+PARAMETERS only (e.g. fixed_point {{"x": "sqrt(a/b)", "y": "0"}}); give sim_criterion on the spectral abscissa \
+alpha (max real eigenvalue of the Jacobian): "lt" a non-positive margin for a STABILITY claim (set robust_frac \
+to 1 — any sampled point above the margin refutes), or "gt" a non-negative margin for an INSTABILITY-ONSET \
+claim. Prefer a strict margin (a hyperbolic equilibrium). Give a param_sweep with enough points per axis. No \
+t_span/dt/init/observable for linear_stability.
+
 Output the plan as a SINGLE JSON object in a ```json fenced block, with these keys: primitive, state_vars, \
 rhs, params, init, param_sweep, init_sweep, t_span, dt, observable, sim_criterion, robust_frac, max_steps, \
-max_grid_points, max_state_vars, max_expr_nodes, and (optional) null_overrides."""
+max_grid_points, max_state_vars, max_expr_nodes, and (optional) null_overrides / fixed_point."""
 
 ARBITER = COMMON_RUBRIC + """
 

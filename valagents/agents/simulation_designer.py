@@ -8,8 +8,8 @@ from valagents.prompts import SIMULATION_DESIGNER
 from valagents.agents.base import build_messages
 
 _FIELDS = ("primitive", "state_vars", "rhs", "params", "init", "param_sweep", "init_sweep",
-           "t_span", "dt", "observable", "sim_criterion", "robust_frac",
-           "max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes", "null_overrides")
+           "null_overrides", "t_span", "dt", "observable", "sim_criterion", "robust_frac",
+           "max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes", "fixed_point")
 
 # The four cap fields are typed int on ComputationPlan — leave them as JSON numbers; everything else
 # (str / dict[str,str] / list[str], possibly nested) must be stringified because Pydantic v2 won't coerce.

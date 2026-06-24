@@ -165,3 +165,34 @@ async def test_bool_value_rejected():
     body = "```json\n" + json.dumps(bad) + "\n```"
     s = _store()
     assert await design_simulation(s.current.claim_graph[0], s.current, router(body), cfg()) is None
+
+LS_PLAN = {
+    "primitive": "linear_stability", "state_vars": ["x"], "rhs": {"x": "-a*x"},
+    "params": {"a": "1.0"}, "fixed_point": {"x": "0"},
+    "param_sweep": {"a": ["0.5", "2.0", "6"]},
+    "sim_criterion": {"op": "lt", "threshold": ["0"]}, "robust_frac": "1",
+    "max_grid_points": 50, "max_state_vars": 4, "max_expr_nodes": 50,
+}
+LS_BODY = "```json\n" + json.dumps(LS_PLAN) + "\n```"
+LS_UNSTABLE = {**LS_PLAN, "rhs": {"x": "a*x"}}   # alpha=+a>0, criterion lt 0 -> NOT stable -> refute -> challenged
+LS_UNSTABLE_BODY = "```json\n" + json.dumps(LS_UNSTABLE) + "\n```"
+
+async def test_ls_designer_emits_fixed_point():
+    s = _store()
+    p = await design_simulation(s.current.claim_graph[0], s.current, router(LS_BODY), cfg())
+    assert p is not None and p.primitive == "linear_stability" and p.fixed_point == {"x": "0"}
+
+async def test_ls_stable_is_discounted_survived():
+    s = _store()
+    await run_simulation_checks(s, router(LS_BODY), cfg())
+    sims = [a for a in s.current.attacks if a.type == "simulation"]
+    assert sims and sims[0].status == "survived"
+    assert s.current.claim_graph[0].checks == []                  # discounted: no CheckRecord
+    assert "linear_stability" in sims[0].basis                    # the basis branch (not observable=?(?))
+
+async def test_ls_unstable_challenges():
+    s = _store(role="novel_core", load_bearing=True)
+    await run_simulation_checks(s, router(LS_UNSTABLE_BODY), cfg())
+    sims = [a for a in s.current.attacks if a.type == "simulation"]
+    assert sims and sims[0].status == "landed" and sims[0].severity == "fatal"
+    assert s.current.verdict_class == "challenged"
