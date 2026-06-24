@@ -1,4 +1,5 @@
 from valagents.agents.arbiter import arbitrate
+from valagents.agents.repairer import repair
 from valagents.artifact import (IdeaArtifact, FormalClaim, Faithfulness, Coverage,
                                 AttackSurface, AtomicClaim, CheckRecord)
 from tests.fake_llm import FakeLLM
@@ -17,6 +18,7 @@ async def test_arbiter_agrees_with_computed(cfg):
     body = "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: none needed"
     out = await arbitrate(validated_art(), FakeLLM(lambda a, m: body), cfg)
     assert out["agrees"] is True
+    assert out["status"] == "internally_validated"
 
 
 async def test_arbiter_disagreement_flagged_computed_wins(cfg):
@@ -27,3 +29,12 @@ async def test_arbiter_disagreement_flagged_computed_wins(cfg):
     body = "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: x"
     out = await arbitrate(art, FakeLLM(lambda a, m: body), cfg)
     assert art.status == "refuted" and out["agrees"] is False   # computed wins; mismatch surfaced
+    assert out["status"] == "refuted"
+
+
+async def test_repair_returns_new_statements(cfg):
+    body = ("REPAIR: tightened scope | TARGETS: c1 | RATIONALE: fix mechanism\n"
+            "CLAIM: c1 | STATEMENT: revised text")
+    out = await repair(validated_art(), ["c1"], FakeLLM(lambda a, m: body), cfg)
+    assert out is not None
+    assert out["new_statements"]["c1"] == "revised text"

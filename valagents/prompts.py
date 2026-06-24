@@ -84,8 +84,10 @@ attack; fix the mechanism.
 ARTIFACT:
 {artifact}
 TARGETS: {targets}
-End with exactly:
-REPAIR: <what changed> | TARGETS: <claim_ids> | RATIONALE: <…>"""
+End with the summary line, exactly:
+REPAIR: <what changed> | TARGETS: <claim_ids> | RATIONALE: <…>
+Then ONE line per repaired sub-claim, exactly:
+CLAIM: <id> | STATEMENT: <revised statement text>"""
 
 ARBITER = """Given the per-claim statuses, attack verdicts, and novelty delta, do not re-argue any of \
 them. State the load-bearing claim and the single decisive test. (The system computes STATUS itself; \

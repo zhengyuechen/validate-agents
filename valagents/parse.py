@@ -71,3 +71,9 @@ async def checked_lines_body(agent, messages, required_keys, *, llm: LLMClient) 
     (so a caller can parse an extra line, e.g. ATTEMPTED, from the SAME body)."""
     rows, body = await _attempt(agent, messages, required_keys, llm, multi=True)
     return rows, body
+
+async def checked_body(agent, messages, required_keys, *, llm: LLMClient) -> tuple[dict | None, str]:
+    """Like checked, but also returns the body the tail was parsed from (so a caller can
+    parse extra lines from the SAME body)."""
+    out, body = await _attempt(agent, messages, required_keys, llm, multi=False)
+    return out, body
