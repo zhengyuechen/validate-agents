@@ -360,6 +360,22 @@ Seed: *"adding an antisymmetric curl term to gradient descent helps escape saddl
 - **Validation-designer** → synthetic-saddle escape-time benchmark; `CONFIRM_IF` the scaling separates; `COST: low`.
 - **Arbiter** narrates; **code computes** `status = needs_experiment`, `load_bearing = (B)`, `decisive_test = the escape-time benchmark`.
 
+### 7.1 Negative worked examples
+
+**Un-falsifiable seed → `ill_posed` ("reframe, not experiment")**
+Seed: *"consciousness is fundamentally non-physical and cannot be measured."*
+- **Formalizer** pins the claim but returns `FALSIFIABLE: no`.
+- Run exits at the entry gate: `status = needs_experiment`, `blocker.reason = not_falsifiable`, `verdict_class = ill_posed`.
+- Report: *"This is not yet a testable claim — it needs reframing, not an experiment."* No validation plan is produced.
+
+**Limit-violating seed → `refuted` via failed limit-recovery claim**
+Seed: *"a new quantum gravity theory predicts faster-than-light signalling at low energy."*
+- **Formalizer** → `FALSIFIABLE: yes`; entry gates pass; main claims A and B survive their lens checks.
+- **known_limits** names *special relativity causality (no FTL signalling)* as unrecovered.
+- **inject_limit_checks** promotes this to load-bearing claim L1 (type: mathematical, origin: limit_recovery).
+- **Prover** on L1 returns `GAPS: CONTRADICTION: FTL signalling violates SR causality bound`, triggering `verdict = fail`.
+- `L1.status = fail` → gate fires: `status = refuted`, `verdict_class = refuted`. The idea is killed on the defensible ground of contradicting established theory.
+
 ---
 
 ## 8. Tests that prove the invariants — `tests/` (deterministic, FakeLLM, no network)

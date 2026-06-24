@@ -1,7 +1,15 @@
-default_model: z-ai/glm-4.7
+default_model: anthropic/claude-opus-4.8
 models:
-  redteam: z-ai/glm-4.7
-  grounder: z-ai/glm-4.7
+  # gating lenses (grounder/prover/redteam) decide the verdict → strong model; narrative agents → cheaper tier
+  grounder: anthropic/claude-opus-4.8
+  prover: anthropic/claude-opus-4.8
+  redteam: anthropic/claude-opus-4.8
+  completer: anthropic/claude-sonnet-4.6
+  theory_bridge: anthropic/claude-sonnet-4.6
+  positioning: anthropic/claude-sonnet-4.6
+  known_limits: anthropic/claude-sonnet-4.6
+  convincing_case: anthropic/claude-sonnet-4.6
+  steelman_objection: anthropic/claude-sonnet-4.6
 temperature:
   formalizer: 0.3
   faithfulness: 0.2
