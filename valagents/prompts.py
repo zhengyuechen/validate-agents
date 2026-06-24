@@ -321,19 +321,24 @@ REPAIR: <what changed> | TARGETS: <claim_ids> | RATIONALE: <...>
 Then ONE line per repaired sub-claim, exactly:
 CLAIM: <id> | STATEMENT: <revised statement text>"""
 
-MAGNITUDE_DESIGNER = """You DESIGN a numeric detectability check; you do NOT run or judge it — code does that, \
-and you will never see the result. Given a measurable prediction, produce the structured plan to test whether \
-the predicted effect is detectable above an established sensitivity.
+MAGNITUDE_DESIGNER = """You DESIGN a numeric magnitude check; you do NOT run or judge it — code does that, \
+and you will never see the result. Given a measurable prediction, choose ONE comparison and produce its \
+structured plan. Output no code; never invent a threshold/sensitivity/bound without naming its SOURCE.
 
 FORMAL CLAIM: {formal}
 PREDICTION: {observable} (effect size: {effect_size}; discriminates from: {discriminates_from})
 
-Give the predicted effect as a NUMBER (SI/natural units), the null/baseline it is measured against, the \
-established measurement SENSITIVITY with its SOURCE (where the sensitivity comes from — instrument/paper), \
-and the detection THRESHOLD (how many times the sensitivity the effect must clear). Do not output code; do not \
-invent a sensitivity without a source.
-End with exactly:
-COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: <number> | BASELINE_OR_NULL: <number> | SENSITIVITY: <number> | SENSITIVITY_SOURCE: <where it comes from> | THRESHOLD: <number> | CONFIRM_IF: <…> | REFUTE_IF: <…>"""
+Choose COMPARISON_KIND:
+- sensitivity_ratio — is the predicted effect detectable above an established measurement sensitivity? \
+Give PREDICTED_EFFECT, BASELINE_OR_NULL, the SENSITIVITY with its SENSITIVITY_SOURCE, and a detection THRESHOLD \
+(how many times the sensitivity the effect must clear).
+- bound_check — does the predicted effect respect an established upper bound / exclusion limit it must not \
+exceed? Give PREDICTED_EFFECT and the BOUND with its BOUND_SOURCE.
+
+All quantities are NUMBERS in SI/natural units. End with EXACTLY ONE line carrying ONLY the fields for your \
+chosen kind, e.g.:
+COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: <n> | BASELINE_OR_NULL: <n> | SENSITIVITY: <n> | SENSITIVITY_SOURCE: <where> | THRESHOLD: <n> | CONFIRM_IF: <...> | REFUTE_IF: <...>
+COMPARISON_KIND: bound_check | PREDICTED_EFFECT: <n> | BOUND: <n> | BOUND_SOURCE: <where> | CONFIRM_IF: <...> | REFUTE_IF: <...>"""
 
 COMPUTATION_DESIGNER = """You DESIGN a symbolic check; you do NOT run or judge it — code does that, and \
 you will never see the result. Given a known-limit-recovery claim, produce the structured plan to test \

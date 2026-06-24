@@ -61,3 +61,41 @@ async def test_uncertain_adds_no_attack_and_does_not_mark_attempted(monkeypatch)
 async def test_evaluate_ignores_magnitude_fields():
     assert "magnitude" not in inspect.getsource(IdeaArtifact._evaluate)
     assert "comparison_kind" not in inspect.getsource(IdeaArtifact._evaluate)
+
+
+BOUND_OK = ("COMPARISON_KIND: bound_check | PREDICTED_EFFECT: 1e-3 | BOUND: 1e-2 "
+            "| BOUND_SOURCE: PDG2024 | CONFIRM_IF: p<=bound | REFUTE_IF: p>bound")
+BOUND_VIOLATE = BOUND_OK.replace("PREDICTED_EFFECT: 1e-3", "PREDICTED_EFFECT: 1e-1")
+BOUND_NO_SOURCE = BOUND_OK.replace("| BOUND_SOURCE: PDG2024 ", "| BOUND_SOURCE:  ")
+
+async def test_bound_violation_injects_failed_claim_and_refutes():
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(BOUND_VIOLATE), cfg())
+    bnd = [c for c in s.current.claim_graph if c.origin == "bound_check"]
+    assert bnd and bnd[0].status == "fail" and bnd[0].load_bearing
+    assert s.current.status == "refuted"
+
+async def test_bound_compliance_injects_passing_sourced_claim():
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(BOUND_OK), cfg())
+    bnd = [c for c in s.current.claim_graph if c.origin == "bound_check"]
+    assert bnd and bnd[0].status == "pass"
+    assert s.current._has_independent_external_check(bnd[0])   # bound_source counts as the external check
+
+async def test_bound_check_does_not_mark_magnitude_attempted():    # L2-D9: claim path, not an attack
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(BOUND_OK), cfg())
+    assert "magnitude" not in s.current.attack_surface.attempted
+    assert not [a for a in s.current.attacks if a.type == "magnitude"]
+
+async def test_bound_missing_source_injects_no_claim():            # fail-closed: no source -> no claim
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(BOUND_NO_SOURCE), cfg())
+    assert not [c for c in s.current.claim_graph if c.origin == "bound_check"]
+
+async def test_bound_idempotent_across_reruns():                   # L2-D11
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(BOUND_OK), cfg())
+    await run_magnitude_checks(s, router(BOUND_OK), cfg())          # rerun = a repair iteration
+    bnd = [c for c in s.current.claim_graph if c.origin == "bound_check"]
+    assert len(bnd) == 1                                           # cleared and re-injected, not duplicated

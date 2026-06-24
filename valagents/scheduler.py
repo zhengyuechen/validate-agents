@@ -251,6 +251,10 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
 
 async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
     art = store.current
+    # L2-D11: drop prior bound_check claims (and their checks) before re-injecting, so repeated runs
+    # across repair iterations do not accumulate duplicate bound claims (mirrors red_team overwriting attacks).
+    art.claim_graph = [c for c in art.claim_graph if c.origin != "bound_check"]
+    bn = 0
     for p in art.predictions:
         if not p.measurable:
             continue
@@ -258,13 +262,30 @@ async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
         if plan is None:
             continue
         from valagents.sandbox.executor import run_plan
-        from valagents.computation import verdict_to_attack
+        from valagents.computation import verdict_to_attack, verdict_to_check
         adir = f"{cfg.results_dir}/computations/magnitude" if getattr(cfg, "results_dir", None) else None
         verdict = run_plan(plan, cfg, artifacts_dir=adir)
-        store.record({"event": "magnitude_executed", "verdict": verdict.verdict, "computed": verdict.measured})
+        store.record({"event": "magnitude_executed", "kind": plan.comparison_kind,
+                      "verdict": verdict.verdict, "computed": verdict.measured})
         if verdict.verdict == "uncertain":
-            continue                                  # FAIL-CLOSED: no attack, no attempted-mark (L2-D9), F2
-        # attack path (sensitivity_ratio): decisive verdict -> Attack + mark "magnitude" attempted
+            continue                                  # FAIL-CLOSED: no attack, no claim, no attempted-mark (L2-D9/F2)
+        if plan.comparison_kind == "bound_check":
+            # CLAIM path: inject a load-bearing mathematical claim; violate -> fail -> REFUTED, comply -> pass.
+            bn += 1
+            claim_id = f"BND{bn}"
+            existing = {c.id for c in art.claim_graph}
+            while claim_id in existing:
+                claim_id = f"BND{bn}_{len(existing)}"
+            claim = AtomicClaim(
+                id=claim_id, type="mathematical", load_bearing=True, origin="bound_check",
+                statement=(f"The idea's predicted effect respects the established bound "
+                           f"({plan.bound}, source: {plan.bound_source})."))
+            art.claim_graph.append(claim)
+            store.add_check(claim_id, verdict_to_check(verdict, tick=tick))
+            claim.exhausted = True
+            tick += 1
+            continue
+        # ATTACK path (sensitivity_ratio): decisive verdict -> Attack + mark "magnitude" attempted.
         attack = verdict_to_attack(verdict, plan.target_claim_id, plan.discriminating, tick=tick)
         art.attacks = art.attacks + [attack]
         if art.attack_surface is not None and "magnitude" not in art.attack_surface.attempted:
