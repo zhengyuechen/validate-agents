@@ -28,6 +28,8 @@ class SimCfg(BaseModel):
     min_grid_points: int = 4
     fixed_point_tol: float = 1e-6      # linear_stability equilibrium residual tolerance (absolute, LS-D8)
     min_points_per_axis: int = 5       # linear_stability per-swept-axis density floor (LS-D8)
+    max_dt_halvings: int = 3           # bounded honesty check: dt-refinement depth (BP / B-D4)
+    conv_rtol: float = 0.1             # bounded honesty check: convergence tolerance on t*/max_abs (B-D7)
 
 class Config(BaseModel):
     default_model: str

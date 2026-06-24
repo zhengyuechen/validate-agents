@@ -70,6 +70,11 @@ def test_missing_ceilings_fail_closed():
     out = runner._run_simulation(plan)
     assert out["ok"] is False and "ceiling" in out["error"].lower()
 
+def test_simcfg_has_bounded_knobs():
+    s = SimCfg()
+    assert s.max_dt_halvings == 3 and s.conv_rtol == 0.1
+    assert "max_dt_halvings" in s.model_dump() and "conv_rtol" in s.model_dump()
+
 def test_reserved_name_shadowing_uncertain():
     # a state var named "E" would shadow Euler's number -> reject fail-closed, not silently mis-simulate
     v = run_plan(splan(state_vars=["E"], rhs={"E": "-a*E"}, init={"E": "1.0"},
