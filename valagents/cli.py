@@ -92,10 +92,11 @@ async def run_cli(
     out_dir=None,
     references_path=None,
     resolver=None,
+    run_id=None,
 ) -> dict:
     out = Path(out_dir or cfg.results_dir)
     out.mkdir(parents=True, exist_ok=True)
-    slug = _slug(seed)
+    slug = run_id or _slug(seed)
     run_log.bind(out / ".logs" / f"{slug}.jsonl")
 
     art = await run(seed, llm, cfg, backend=backend)

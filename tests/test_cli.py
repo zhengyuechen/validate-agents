@@ -48,6 +48,21 @@ async def test_run_cli_writes_json_and_report(tmp_path, cfg):
     assert "never 'true'" in open(out["report_path"]).read()
 
 
+async def test_run_cli_accepts_explicit_run_id(tmp_path, cfg):
+    script = dict(BASE)
+    script["prover"] = "DERIVATION: complete | GAPS: none | FATAL_GAP: no"
+    script["redteam"] = (
+        "ATTEMPTED: counterexample, magnitude\n"
+        "ATTACK: magnitude | SEVERITY: minor | STATUS: survived | TARGET: none | BASIS: ok"
+    )
+
+    out = await run_cli("seed with id", scripted(script), cfg, out_dir=str(tmp_path), run_id="web-run")
+
+    assert out["json_path"].endswith("web-run.json")
+    assert out["report_path"].endswith("web-run.md")
+    assert (tmp_path / ".logs" / "web-run.jsonl").parent.exists()
+
+
 async def test_run_cli_writes_references_bib_and_markers(tmp_path, cfg):
     script = dict(BASE)
     script["grounder"] = (

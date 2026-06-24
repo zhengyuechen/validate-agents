@@ -7,3 +7,5 @@ pyyaml
 arxiv
 pytest
 pytest-asyncio
+fastapi
+uvicorn

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Validate Agents</title>
+  <link rel="icon" href="data:," />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand">
+      <h1>Validate Agents</h1>
+      <p class="tagline">Multi-agent claim validation surface for formalization, grounding, adversarial review, repair, and decisive-test design.</p>
+    </div>
+    <div class="masthead-meta" id="grounding-badge" title="Grounding backend"></div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="panel">
+        <p class="eyebrow">Experiment</p>
+        <h2 class="panel-title">New validation</h2>
+        <form id="run-form" autocomplete="off">
+          <label class="field">
+            <span class="field-label">Seed idea</span>
+            <textarea id="seed" rows="5" placeholder="e.g. A weak curl component helps gradient methods escape saddle regions"></textarea>
+          </label>
+          <label class="field">
+            <span class="field-label">References file</span>
+            <input id="references" type="text" placeholder="optional path" />
+          </label>
+          <button type="submit" id="run-btn" class="btn-primary">Run validation</button>
+          <div id="run-timer" class="run-timer" hidden>elapsed 00:00</div>
+        </form>
+        <div id="run-status" class="run-status" hidden></div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Archive</p>
+        <h2 class="panel-title">Artifacts</h2>
+        <ul id="runs-list" class="runs-list"></ul>
+      </section>
+
+      <nav class="panel panel-nav">
+        <button id="nav-config" class="nav-link" type="button">Configuration &rarr;</button>
+      </nav>
+    </aside>
+
+    <section class="content">
+      <div id="view-welcome" class="view view-welcome">
+        <p class="eyebrow">Readout</p>
+        <h2 class="welcome-title">A bench for trying to break claims before you trust them.</h2>
+        <p class="welcome-body">The first artifact you open will appear here with its claim graph, checks, attacks, maturity score, and final report.</p>
+      </div>
+
+      <article id="view-results" class="view" hidden>
+        <header class="result-head">
+          <p class="eyebrow" id="result-id"></p>
+          <h2 class="result-goal" id="result-seed"></h2>
+          <div class="summary-strip">
+            <span id="status-pill" class="tag"></span>
+            <span id="maturity-pill" class="tag metric"></span>
+            <span id="load-pill" class="tag metric"></span>
+          </div>
+          <p class="result-grounding" id="blocker-line" hidden></p>
+        </header>
+
+        <section class="block">
+          <h3 class="block-title">Formal Claim</h3>
+          <div class="prose formal-box" id="formal-claim"></div>
+        </section>
+
+        <section class="block">
+          <h3 class="block-title">Claim Graph <span class="count" id="claim-count"></span></h3>
+          <table class="data-table" id="claim-table">
+            <thead><tr><th>id</th><th>type</th><th>status</th><th>checks</th><th>statement</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <section class="block split-block">
+          <div>
+            <h3 class="block-title">Attacks <span class="count" id="attack-count"></span></h3>
+            <table class="data-table" id="attack-table">
+              <thead><tr><th>type</th><th>severity</th><th>status</th><th>target</th><th>basis</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div>
+            <h3 class="block-title">Predictions <span class="count" id="prediction-count"></span></h3>
+            <table class="data-table" id="prediction-table">
+              <thead><tr><th>observable</th><th>effect</th><th>measurable</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="block">
+          <h3 class="block-title">Decisive Test</h3>
+          <div class="prose formal-box" id="validation-plan"></div>
+        </section>
+
+        <section class="block">
+          <h3 class="block-title">Report</h3>
+          <pre class="report-box" id="report"></pre>
+        </section>
+
+        <section class="block" id="bib-section" hidden>
+          <h3 class="block-title">BibTeX</h3>
+          <pre class="report-box compact" id="bibtex"></pre>
+        </section>
+      </article>
+
+      <form id="view-config" class="view" hidden>
+        <header class="result-head">
+          <p class="eyebrow">Parameters</p>
+          <h2 class="result-goal">Configuration</h2>
+        </header>
+        <div id="config-groups"></div>
+        <div class="config-actions">
+          <button type="submit" id="config-save" class="btn-primary">Save configuration</button>
+          <span id="config-msg" class="config-msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <aside class="lograil">
+      <div class="lograil-head">
+        <p class="eyebrow">Live</p>
+        <h2 class="panel-title">Run activity</h2>
+        <span class="lograil-meta" id="log-meta">no events yet</span>
+      </div>
+      <ol class="event-log" id="event-log"></ol>
+    </aside>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
