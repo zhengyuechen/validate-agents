@@ -99,3 +99,14 @@ async def test_bound_idempotent_across_reruns():                   # L2-D11
     await run_magnitude_checks(s, router(BOUND_OK), cfg())          # rerun = a repair iteration
     bnd = [c for c in s.current.claim_graph if c.origin == "bound_check"]
     assert len(bnd) == 1                                           # cleared and re-injected, not duplicated
+
+
+INERT_NO_SOURCE = INERT.replace("| SENSITIVITY_SOURCE: arXiv:1234 ", "| SENSITIVITY_SOURCE:  ")
+
+async def test_sensitivity_missing_source_no_plan_no_attack():   # fail-closed at designer (spill guard)
+    art = store_with_prediction().current
+    assert await design_magnitude(art.predictions[0], art, router(INERT_NO_SOURCE), cfg()) is None
+    s = store_with_prediction(discriminates=True)
+    await run_magnitude_checks(s, router(INERT_NO_SOURCE), cfg())
+    assert not [a for a in s.current.attacks if a.type == "magnitude"]
+    assert "magnitude" not in s.current.attack_surface.attempted

@@ -14,6 +14,12 @@ _KIND_KEYS = {
     "bound_check": ["BOUND", "BOUND_SOURCE"],
 }
 
+def _valid_source(s: str) -> bool:
+    """A source must be a real named value: non-empty after strip and free of the tail
+    separator '|' (a '|' means parse_tail spilled an EMPTY source field into the next one)."""
+    s = (s or "").strip()
+    return bool(s) and "|" not in s
+
 async def design_magnitude(prediction, art, llm, cfg) -> ComputationPlan | None:
     user = MAGNITUDE_DESIGNER.format(
         formal=art.formal_claim.statement if art.formal_claim else "",
@@ -37,13 +43,16 @@ async def design_magnitude(prediction, art, llm, cfg) -> ComputationPlan | None:
                   criterion="magnitude")
     try:
         if ck == "sensitivity_ratio":
+            ss = (t["sensitivity_source"] or "").strip()
+            if not _valid_source(ss):                # fail-closed: empty or spilled value -> no plan
+                return None
             return ComputationPlan(comparison_kind="sensitivity_ratio",
                 predicted_effect=t["predicted_effect"], baseline_or_null=t["baseline_or_null"],
-                sensitivity=t["sensitivity"], sensitivity_source=t["sensitivity_source"],
+                sensitivity=t["sensitivity"], sensitivity_source=ss,
                 threshold=t["threshold"], **common)
         if ck == "bound_check":
-            bs = t["bound_source"].strip()
-            if not bs or "|" in bs:                  # fail-closed: empty or spilled value -> no plan
+            bs = (t["bound_source"] or "").strip()
+            if not _valid_source(bs):                # fail-closed: empty or spilled value -> no plan
                 return None
             return ComputationPlan(comparison_kind="bound_check",
                 predicted_effect=t["predicted_effect"], bound=t["bound"], bound_source=bs,
