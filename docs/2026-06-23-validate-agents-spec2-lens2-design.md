@@ -104,16 +104,19 @@ for each Prediction p where p.measurable (and, for discriminating_margin, p.disc
   if plan is None: continue                               # fall back to the reasoned Red-team magnitude
   verdict = run_plan(plan, cfg, artifacts_dir=…)          # numpy execution, code verdict (F3)
   store.record({"event": "magnitude_executed", ...})      # audit, unconditional
-  if verdict.verdict == "uncertain": continue             # fail-closed → reasoned magnitude stands (F2)
+  if verdict.verdict == "uncertain": continue             # FAIL-CLOSED: no attack, no claim, and (critically)
+                                                          #   does NOT mark "magnitude" attempted (see below). Reasoned magnitude stands (F2).
   if plan.comparison_kind == "bound_check":
       inject a claim type="mathematical", load_bearing=True, origin="bound_check"
         ("the idea's predicted effect respects the established bound <…>"), then
         store.add_check(verdict_to_check(verdict))   # mirrors inject_limit_checks; type=mathematical
         so the executor pass/fail is a strongest-pass/fail that dominates incidental uncertainties
-  else:  # sensitivity_ratio | discriminating_margin
+  else:  # sensitivity_ratio | discriminating_margin (attack path)
       store.set("attacks", art.attacks + [verdict_to_attack(verdict, plan.target_claim_id, plan.discriminating, tick)])
-mark AttackSurface.attempted to include "magnitude" (now executed)
+      add "magnitude" to AttackSurface.attempted   # ONLY HERE — a real magnitude attack was EXECUTED (survived/landed)
 ```
+
+> **Pinned (anti-laundering of the teeth check).** `"magnitude"` is added to `AttackSurface.attempted` **only on a decisive, executed attack-path verdict** (`survived`/`landed`). A `uncertain` / missing-source / can't-compute magnitude run **must not** mark `"magnitude"` attempted — otherwise a *fail-closed non-execution* would satisfy `_thin_attack_surface()` (which only checks `"magnitude" in attempted`), letting an idea clear the teeth check without a real magnitude probe. The reasoned Red-team's self-reported `"magnitude"` attempt is separate and unchanged (the §2-boundary note already discounts it as coverage-not-strength); lens 2's marking is the *executed* upgrade, and it earns the mark only by actually running.
 
 Gate consequences via the **unchanged `_evaluate`**: a landed `fatal`/`major` magnitude attack → `needs_experiment` (`severe_objection`/`open_objection`) → `challenged`; a bound-violation claim `fail` → `refuted`; a detectable/compliant/discriminating result → no negative effect (and the executed magnitude category satisfies the thin-attack-surface check). `_evaluate()` is **not changed** — it already reads `claim.status` and `attacks`.
 
@@ -147,6 +150,7 @@ The Executor runs real, pinned numpy + the restricted parser — so tests exerci
 - **Magnitude-Designer (FakeLLM):** emits the structured tail → `ComputationPlan` (right `comparison_kind`, required fields); missing source field → returns a plan the executor will mark `uncertain`, or `None`.
 - **Verdict mapping:** `verdict_to_attack` — confirm→`survived`, refute→`landed` with severity `fatal` iff `discriminating`; `bound_check` refute→`CheckRecord(fail)`.
 - **Integration (FakeLLM designer + real executor):** inert sensitivity_ratio on a discriminating prediction → landed `fatal` magnitude attack → artifact `verdict_class == "challenged"`; bound violation → injected claim `fail` → artifact `refuted`; missing-source → `uncertain` → no attack/claim, reasoned magnitude stands.
+- **Teeth not laundered (the pinned rule):** a `sensitivity_ratio` run with a missing `sensitivity_source` → `uncertain` → `"magnitude"` is **NOT** added to `attempted`; assert that if this was the only magnitude attempt, `_thin_attack_surface()` still returns `True` (a fail-closed non-execution cannot clear the teeth check). Conversely, a decisive (`survived`/`landed`) run DOES add `"magnitude"`.
 - **Gate purity:** `inspect.getsource(IdeaArtifact._evaluate)` contains neither `"magnitude"` nor `"comparison_kind"`.
 
 ---
@@ -171,3 +175,4 @@ The Executor runs real, pinned numpy + the restricted parser — so tests exerci
 - **L2-D6** `_evaluate()` unchanged — magnitude flows through `attacks` (attack path) and `claim.status` (bound path), both already read by the gate.
 - **L2-D7 (loud caveat)** Verifies clearance/violation against the *preregistered, sourced* threshold, not that the threshold is literature-correct (Spec-3 grounding). All values + sources saved as artifacts.
 - **L2-D8** F2 fallback: an `uncertain` magnitude result adds no attack and no claim; the reasoned Red-team magnitude (and Prover) stand.
+- **L2-D9 (anti-laundering of teeth)** `"magnitude"` is added to `AttackSurface.attempted` **only on a decisive executed attack-path verdict** (`survived`/`landed`) — never on a fail-closed `uncertain`/missing-source run. Otherwise a non-execution would satisfy `_thin_attack_surface()`. Tested (§8).
