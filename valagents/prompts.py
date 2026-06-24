@@ -1,99 +1,227 @@
 """Prompt templates. Each ends with a mandatory machine-readable tail (parsed strictly)."""
 
-FORMALIZER = """Restate the following idea as a precise, falsifiable claim. Identify the variables \
-and what they range over; the scope and the regime of validity; the conditions under which it is \
-asserted to hold. Do not add mechanism or evidence — only sharpen the statement.
+COMMON_RUBRIC = """Shared validation rules:
+- Preserve the user's claim; do not launder it into an easier adjacent claim.
+- Prefer explicit uncertainty, gaps, or no-support verdicts over confident invention.
+- Distinguish evidence in the retrieved material from speculation or plausible mechanism.
+- Keep the machine-readable tail as the final response text, with the exact labels requested.
+- Do not assign the artifact's final status unless the prompt explicitly asks for a STATUS cross-check."""
+
+FORMALIZER = COMMON_RUBRIC + """
+
+Role: formalize the seed idea into one precise, falsifiable claim.
+Checklist:
+- Keep the same scope, variables, and intended phenomenon as the seed.
+- Name the variables and what they range over.
+- State the regime of validity: system, assumptions, limits, scale, and boundary conditions.
+- A falsifiable claim must imply an observable or computationally checkable refutation condition.
+- Do not add mechanism, citations, predictions, or evidence here; sharpen only the statement.
+- If the seed is too vague to falsify, preserve that limitation and mark falsifiable as no.
 
 IDEA: {raw_idea}
 
 End your response with exactly:
-CLAIM: <one sentence> | VARIABLES: <…> | REGIME: <…> | FALSIFIABLE: yes|no"""
+CLAIM: <one sentence> | VARIABLES: <...> | REGIME: <...> | FALSIFIABLE: yes|no"""
 
-FAITHFULNESS = """Here is a seed idea and a formal claim a colleague derived from it.
+FAITHFULNESS = COMMON_RUBRIC + """
+
+Role: decide whether the formal claim faithfully preserves the seed idea.
+Compare:
+- Scope: same object, population, phenomenon, and intended scale.
+- Variables: no missing load-bearing variable and no new unrequested variable that changes the claim.
+- Mechanism: no invented causal pathway or substitution of a different mechanism.
+- Regime: no hidden narrowing to a special case unless the seed already required it.
+- Strength: no stronger guarantee, weaker hedge, or swapped conclusion.
+
+Use "yes" only when the formal claim is the same claim in sharper language.
+Use "narrowed" when it is a proper subset or special case of the seed.
+Use "no" when it drifts, contradicts, adds a different mechanism, or changes the target.
+
 SEED: {raw_idea}
 FORMAL CLAIM: {formal}
-Back-translate the FORMAL CLAIM into plain language, then judge whether it is what the SEED asked —
-not a narrowing, not an adjacent claim. End with exactly:
+
+Back-translate the FORMAL CLAIM into plain language, then judge whether it is what the SEED asked.
+End with exactly:
 FAITHFUL: yes|narrowed|no | BACK_TRANSLATION: <plain-language restatement of the formal claim>"""
 
-DECOMPOSER = """Decompose this claim into atomic, independently-checkable sub-claims with dependency \
-edges. Tag each by type. Do not invent support — only expose structure.
-CLAIM: {formal}
-Output ONE line per sub-claim, exactly:
-CLAIM: <id> | TYPE: definitional|mathematical|empirical|mechanistic | DEPENDS_ON: <ids|none> | STATEMENT: <…>"""
+DECOMPOSER = COMMON_RUBRIC + """
 
-ENTAILMENT = """Does the conjunction of these sub-claims logically establish the formal claim, or is a \
-load-bearing step missing?
+Role: expose the formal claim's logical structure as atomic sub-claims.
+Checklist:
+- Each sub-claim should be independently checkable and small enough to attack or support.
+- Include definitional claims when terms, metrics, or mappings are load-bearing.
+- Include mathematical claims when an equation, bound, scaling law, or derivation is required.
+- Include empirical claims when the artifact depends on observations or measured facts.
+- Include mechanistic claims when causal, physical, algorithmic, or process explanations are required.
+- Dependencies should point only to earlier or otherwise necessary sub-claims.
+- Do not invent literature support, validation status, or repairs.
+
+CLAIM: {formal}
+
+Output ONE line per sub-claim, exactly:
+CLAIM: <id> | TYPE: definitional|mathematical|empirical|mechanistic | DEPENDS_ON: <ids|none> | STATEMENT: <...>"""
+
+ENTAILMENT = COMMON_RUBRIC + """
+
+Role: check whether the sub-claims jointly imply the formal claim.
+Checklist:
+- Treat the sub-claims as the only premises; do not silently import missing facts.
+- Verify the conclusion's scope, strength, variables, and regime match the formal claim.
+- A missing definition, bridge law, empirical premise, or quantifier condition is a gap.
+- Mark complete only when the conjunction would make the formal claim follow.
+
 FORMAL CLAIM: {formal}
 SUB-CLAIMS:
 {subclaims}
+
 End with exactly:
 COVERS: complete|gap | MISSING: <description|none>"""
 
-GROUNDER_CLAIM = """Assess whether the literature supports this sub-claim, and identify INDEPENDENT \
-sources (distinct authors/groups — not the same lab citing itself).
+GROUNDER_CLAIM = COMMON_RUBRIC + """
+
+Role: assess whether retrieved literature supports this specific sub-claim.
+Checklist:
+- Use only labels present in RETRIEVED LITERATURE, such as [A1] or [A2].
+- Do not cite memory, outside knowledge, or unlabeled sources.
+- "supported" requires direct support for the sub-claim, not merely topic similarity.
+- "unsupported" applies when retrieved work contradicts the sub-claim or lacks needed support.
+- "uncertain" applies when retrieved work is incomplete, indirect, ambiguous, or absent.
+- Count independent sources as distinct author groups or experimental/theoretical lineages, not repeated papers from the same group.
+- The BASIS should name the decisive support, contradiction, or missing evidence.
+
 SUB-CLAIM ({ctype}): {statement}
 RETRIEVED LITERATURE:
 {articles}
-End with exactly:
-CLAIM: {cid} | SUPPORT: supported|unsupported|uncertain | INDEPENDENT_SOURCES: <n> | SOURCES: <[A1], [A2], …|none> | BASIS: <…>"""
 
-GROUNDER_NOVELTY = """Position this claim against the closest prior work and name the delta — the \
-specific thing it asserts that prior work does not.
+End with exactly:
+CLAIM: {cid} | SUPPORT: supported|unsupported|uncertain | INDEPENDENT_SOURCES: <n> | SOURCES: <[A1], [A2], ...|none> | BASIS: <...>"""
+
+GROUNDER_NOVELTY = COMMON_RUBRIC + """
+
+Role: position the formal claim against the closest retrieved prior work.
+Checklist:
+- Identify the closest prior even if it weakens the novelty case.
+- The delta must be the exact assertion the prior work does not already make.
+- Use "restatement" if the claim is already present in prior work under different words.
+- Use "special_case" if it narrows, instantiates, or recombines known work without a new load-bearing assertion.
+- Use "new" only when the retrieved prior does not contain the claim or its equivalent.
+- If literature is absent or too weak, say so in CLOSEST_PRIOR/BASIS-style wording, but keep the exact final schema.
+
 CLAIM: {formal}
 RETRIEVED LITERATURE:
 {articles}
-End with exactly:
-CLOSEST_PRIOR: <…> | DELTA: <…> | POSITION: new|special_case|restatement"""
 
-PROVER = """Build the chain from premises to this sub-claim. For a definitional claim, check it is \
-coherent and non-circular; for mathematical/mechanistic, sketch and check the derivation/causal chain. \
-Flag gaps rather than paper over them.
+End with exactly:
+CLOSEST_PRIOR: <...> | DELTA: <...> | POSITION: new|special_case|restatement"""
+
+PROVER = COMMON_RUBRIC + """
+
+Role: test whether the sub-claim has a coherent derivation or internal argument.
+Checklist by claim type:
+- Definitional: check clarity, non-circularity, and whether the definition can bear later use.
+- Mathematical: identify premises, transformations, missing lemmas, and boundary conditions.
+- Mechanistic: trace the causal chain and note any unsupported transition or scale mismatch.
+- Empirical: identify whether the empirical assertion has enough specified measurement context.
+
+Use "complete" only when the derivation/argument reaches the sub-claim without hand-waving.
+Use "gapped" when a premise, lemma, measurement condition, or causal bridge is missing.
+Set FATAL_GAP to yes when the missing step is load-bearing enough that the sub-claim cannot stand.
+
 SUB-CLAIM ({ctype}): {statement}
+
 End with exactly:
 DERIVATION: complete|gapped | GAPS: <ids|none> | FATAL_GAP: yes|no"""
 
-PREDICTOR = """Extract the falsifiable consequences of this claim — concrete, measurable, and \
-discriminating: what does it predict that the null or the closest existing model does not?
+PREDICTOR = COMMON_RUBRIC + """
+
+Role: extract concrete falsifiable consequences of the claim.
+Checklist:
+- Each prediction should be observable, measurable, and discriminating.
+- Name the null model, baseline, or closest existing model it distinguishes from.
+- Give an effect size as a direction, threshold, scaling relation, or order-of-magnitude expectation.
+- Mark MEASURABLE as no if the observable is vague, lacks an operational measurement, or cannot be distinguished from the comparator.
+- Prefer fewer high-value predictions over many generic consequences.
+
 CLAIM: {formal}
 DELTA vs prior work: {delta}
-Output ONE line per prediction, exactly:
-OBSERVABLE: <…> | EFFECT_SIZE: <…> | DISCRIMINATES_FROM: <…> | MEASURABLE: yes|no"""
 
-RED_TEAM = """You are an adversarial reviewer trying to BREAK this claim, not improve it. Attempt, in \
-order: (1) a counterexample; (2) a regime where it fails; (3) a confound or simpler explanation; \
-(4) a magnitude check — strip the framing and determine whether the mechanism changes any measurable \
-quantity at the relevant scale, and by how many orders of magnitude. State which categories you \
-ATTEMPTED. For each attack say whether the claim survives.
+Output ONE line per prediction, exactly:
+OBSERVABLE: <...> | EFFECT_SIZE: <...> | DISCRIMINATES_FROM: <...> | MEASURABLE: yes|no"""
+
+RED_TEAM = COMMON_RUBRIC + """
+
+Role: be an adversarial reviewer trying to break the artifact.
+Attempt all applicable attack categories:
+- counterexample: construct a case satisfying the assumptions where the claim fails.
+- failure_regime: find boundaries, limits, scales, or conditions where the claim should stop holding.
+- confound: identify a simpler explanation or uncontrolled variable that could explain the same observation.
+- magnitude: strip the framing and estimate whether the mechanism changes any measurable quantity at the relevant scale, including orders of magnitude.
+
+Severity definitions:
+- fatal = a contradiction, counterexample, or scale check collapses a load-bearing claim.
+- major = a material unresolved objection requiring experiment, computation, or repair, but not yet a refutation.
+- minor = a caveat or weakness that lowers confidence but does not block the claim.
+
+Status rules:
+- Use "landed" when the attack exposes a real unresolved problem.
+- Use "survived" only when the artifact directly answers the attack in the supplied text.
+- Do not soften a landed attack because it seems fixable; the repairer handles fixes.
+- Magnitude must be attempted when any physical, statistical, computational, or measurable scale is relevant.
+
 ARTIFACT:
 {artifact}
+
 First line, exactly: ATTEMPTED: <subset of counterexample, failure_regime, confound, magnitude>
 Then ONE line per attack, exactly:
-ATTACK: <type> | SEVERITY: fatal|major|minor | STATUS: survived|landed | TARGET: <claim_id|none> | BASIS: <…>"""
+ATTACK: <type> | SEVERITY: fatal|major|minor | STATUS: survived|landed | TARGET: <claim_id|none> | BASIS: <...>"""
 
-VALIDATION_DESIGNER = """Propose the single cheapest experiment or computation that would decisively \
-confirm or refute this claim. Prefer a computation over an experiment if one suffices.
+VALIDATION_DESIGNER = COMMON_RUBRIC + """
+
+Role: propose the cheapest decisive validation.
+Checklist:
+- Prefer a computation, simulation, reanalysis, or sanity-check calculation over a new experiment when sufficient.
+- The test should target the load-bearing uncertainty, not merely produce supportive context.
+- CONFIRM_IF and REFUTE_IF must be concrete decision criteria.
+- Cost should reflect equipment/time/access burden, not the importance of the claim.
+- Avoid vague "collect more data" plans; specify what is measured or computed.
+
 ARTIFACT:
 {artifact}
-End with exactly:
-TEST: <…> | CONFIRM_IF: <…> | REFUTE_IF: <…> | COST: low|medium|high"""
 
-REPAIRER = """An attack landed or a derivation gap was found. Propose a targeted repair to the named \
-sub-claims — a new version, not a rewrite of what already passed. Do not weaken the claim to dodge the \
-attack; fix the mechanism.
+End with exactly:
+TEST: <...> | CONFIRM_IF: <...> | REFUTE_IF: <...> | COST: low|medium|high"""
+
+REPAIRER = COMMON_RUBRIC + """
+
+Role: repair only the named target sub-claims after a landed attack or derivation gap.
+Checklist:
+- Change the target statements directly; do not rewrite unrelated claims.
+- Preserve the original ambition when possible; do not merely weaken the claim to dodge the attack.
+- Add the missing condition, mechanism, variable, or derivation bridge that addresses the stated failure.
+- If a target cannot be repaired without changing the thesis, say that in the rationale and still emit the best revised target statement.
+- The repaired sub-claim lines must use the target ids so downstream state can merge them.
+
 ARTIFACT:
 {artifact}
 TARGETS: {targets}
+
 End with the summary line, exactly:
-REPAIR: <what changed> | TARGETS: <claim_ids> | RATIONALE: <…>
+REPAIR: <what changed> | TARGETS: <claim_ids> | RATIONALE: <...>
 Then ONE line per repaired sub-claim, exactly:
 CLAIM: <id> | STATEMENT: <revised statement text>"""
 
-ARBITER = """Given the per-claim statuses, attack verdicts, and novelty delta, do not re-argue any of \
-them. State the load-bearing claim and the single decisive test. (The system computes STATUS itself; \
-your STATUS line is a cross-check.)
+ARBITER = COMMON_RUBRIC + """
+
+Role: cross-check the computed outcome and identify what matters most.
+Checklist:
+- The computed status wins; do not re-argue evidence, attacks, novelty, or repairs.
+- Choose the load-bearing claim whose failure would most directly collapse the artifact.
+- The decisive test should be the single validation most likely to resolve that load-bearing uncertainty.
+- If the computed status and artifact text appear inconsistent, reflect that in the STATUS cross-check without inventing a new computed result.
+
 ARTIFACT:
 {artifact}
 COMPUTED STATUS: {computed_status}
+
 End with exactly:
-STATUS: <…> | LOAD_BEARING: <claim_id> | DECISIVE_TEST: <…>"""
+STATUS: <...> | LOAD_BEARING: <claim_id> | DECISIVE_TEST: <...>"""
