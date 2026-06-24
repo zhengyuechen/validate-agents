@@ -46,6 +46,42 @@ class Novelty(BaseModel):
     delta: str = ""
     position: Literal["new", "special_case", "restatement"] = "new"
 
+class IdeaCompletion(BaseModel):
+    status: Literal["incomplete", "completed_candidate", "polished_research_plan"] = "incomplete"
+    completed_idea: str = ""
+    mechanism: str = ""
+    assumptions: list[str] = []
+    weakest_link: str = ""
+
+class TheoryBridge(BaseModel):
+    theory_family: str = ""
+    nearest_theories: list[str] = []
+    extends: str = ""
+    challenges: str = ""
+    recovers_known_limits: str = ""
+    departure_point: str = ""
+    expert_translation: str = ""
+
+class PriorArtPositioning(BaseModel):
+    closest_prior: str = ""
+    similarity: str = ""
+    difference: str = ""
+    what_is_new: str = ""
+    must_cite: list[str] = []
+
+class KnownLimit(BaseModel):
+    limit: str
+    recovered: Literal["yes", "no", "unclear"] = "unclear"
+    failure_if_not: str = ""
+    repair_needed: str = ""
+
+class ConvincingCase(BaseModel):
+    elevator_version: str = ""
+    technical_version: str = ""
+    why_existing_theory_leaves_room: str = ""
+    why_plausible: str = ""
+    skeptic_tests: list[str] = []
+
 class Prediction(BaseModel):
     observable: str
     effect_size: str = ""
@@ -79,6 +115,7 @@ class AtomicClaim(BaseModel):
     id: str
     statement: str
     type: Literal["definitional", "mathematical", "empirical", "mechanistic"]
+    role: Literal["background", "bridge", "novel_core", "assumption", "prediction", "test_condition"] = "novel_core"
     depends_on: list[str] = []
     load_bearing: bool = True
     checks: list[CheckRecord] = []
@@ -125,6 +162,11 @@ class IdeaArtifact(BaseModel):
     claim_graph: list[AtomicClaim] = []
     derivation: Derivation | None = None
     novelty: Novelty | None = None
+    completion: IdeaCompletion | None = None
+    theory_bridge: TheoryBridge | None = None
+    prior_art_positioning: PriorArtPositioning | None = None
+    known_limits: list[KnownLimit] = []
+    convincing_case: ConvincingCase | None = None
     predictions: list[Prediction] = []
     attacks: list[Attack] = []
     attack_surface: AttackSurface | None = None

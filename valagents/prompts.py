@@ -53,13 +53,14 @@ Checklist:
 - Include mathematical claims when an equation, bound, scaling law, or derivation is required.
 - Include empirical claims when the artifact depends on observations or measured facts.
 - Include mechanistic claims when causal, physical, algorithmic, or process explanations are required.
+- Assign each claim a role: background, bridge, novel_core, assumption, prediction, or test_condition.
 - Dependencies should point only to earlier or otherwise necessary sub-claims.
 - Do not invent literature support, validation status, or repairs.
 
 CLAIM: {formal}
 
 Output ONE line per sub-claim, exactly:
-CLAIM: <id> | TYPE: definitional|mathematical|empirical|mechanistic | DEPENDS_ON: <ids|none> | STATEMENT: <...>"""
+CLAIM: <id> | TYPE: definitional|mathematical|empirical|mechanistic | ROLE: background|bridge|novel_core|assumption|prediction|test_condition | DEPENDS_ON: <ids|none> | STATEMENT: <...>"""
 
 ENTAILMENT = COMMON_RUBRIC + """
 
@@ -194,6 +195,87 @@ ARTIFACT:
 
 End with exactly:
 TEST: <...> | CONFIRM_IF: <...> | REFUTE_IF: <...> | COST: low|medium|high"""
+
+IDEA_COMPLETER = COMMON_RUBRIC + """
+
+Role: complete the seed into the strongest coherent candidate idea before judging validation.
+Checklist:
+- Preserve the original ambition; do not shrink the idea merely because it is new.
+- Fill missing mechanism steps, assumptions, and boundary conditions explicitly.
+- Make the idea understandable as a candidate theory/research program.
+- If multiple completions are possible, choose the most coherent and testable version.
+- Name the weakest link that most needs proof, simulation, or experiment.
+
+ARTIFACT:
+{artifact}
+
+End with exactly:
+COMPLETION_STATUS: incomplete|completed_candidate|polished_research_plan | COMPLETED_IDEA: <...> | MECHANISM: <...> | ASSUMPTIONS: <comma-separated assumptions|none> | WEAKEST_LINK: <claim_id or description>"""
+
+THEORY_BRIDGE = COMMON_RUBRIC + """
+
+Role: connect the completed idea to existing theory so experts can understand and evaluate it.
+Checklist:
+- Name the theory family or formalism that makes the idea legible.
+- Identify nearest existing theories, analogies, or limiting cases.
+- State what the idea extends and what it challenges.
+- State what known limits it must recover.
+- Translate the idea into language an expert in the field already trusts.
+- Do not claim support merely from analogy; mark bridges as conceptual scaffolding.
+
+ARTIFACT:
+{artifact}
+
+End with exactly:
+THEORY_FAMILY: <...> | NEAREST_THEORIES: <comma-separated theories|none> | EXTENDS: <...> | CHALLENGES: <...> | RECOVERS_KNOWN_LIMITS: <...> | DEPARTURE_POINT: <...> | EXPERT_TRANSLATION: <...>"""
+
+PRIOR_ART_POSITIONING = COMMON_RUBRIC + """
+
+Role: position the completed idea against prior art without reducing it to pass/fail support.
+Checklist:
+- Name the closest prior theory, paper, model, or research program from the artifact/retrieval context.
+- Explain similarity and difference separately.
+- State exactly what is new if the completion is right.
+- List works/theories that must be cited or discussed.
+- If prior art is missing, say what kind of prior art should be searched for next.
+
+ARTIFACT:
+{artifact}
+
+End with exactly:
+CLOSEST_PRIOR: <...> | SIMILARITY: <...> | DIFFERENCE: <...> | WHAT_IS_NEW: <...> | MUST_CITE: <comma-separated items|none>"""
+
+KNOWN_LIMITS = COMMON_RUBRIC + """
+
+Role: check whether the completed idea recovers or respects known limiting cases and constraints.
+Checklist:
+- Include standard limits, conservation/symmetry/causality/no-signaling constraints, dimensional checks, or benchmark regimes when relevant.
+- Mark RECOVERED as yes only when the artifact explicitly recovers the limit.
+- Mark RECOVERED as no only when the artifact appears incompatible.
+- Mark RECOVERED as unclear when the completion still needs derivation or evidence.
+- State what fails if the limit is not recovered and what repair would be needed.
+
+ARTIFACT:
+{artifact}
+
+Output ONE line per known limit, exactly:
+LIMIT: <...> | RECOVERED: yes|no|unclear | FAILURE_IF_NOT: <...> | REPAIR_NEEDED: <...>"""
+
+CONVINCING_CASE = COMMON_RUBRIC + """
+
+Role: build the scientific case for the completed idea without hype.
+Checklist:
+- Give a short version and a technical version.
+- Explain why existing theory leaves room for the proposal.
+- Explain why the completed mechanism is plausible but still unvalidated.
+- Name what would convince a skeptical expert.
+- Do not call the idea true; this is an argument map plus validation agenda.
+
+ARTIFACT:
+{artifact}
+
+End with exactly:
+ELEVATOR_VERSION: <...> | TECHNICAL_VERSION: <...> | WHY_EXISTING_THEORY_LEAVES_ROOM: <...> | WHY_PLAUSIBLE: <...> | SKEPTIC_TESTS: <comma-separated tests|none>"""
 
 REPAIRER = COMMON_RUBRIC + """
 

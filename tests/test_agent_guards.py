@@ -21,12 +21,19 @@ async def test_faithfulness_narrowed_records_retried_flag(cfg):
 
 @pytest.mark.asyncio
 async def test_decompose_builds_graph(cfg):
-    body = ("CLAIM: A | TYPE: mathematical | DEPENDS_ON: none | STATEMENT: projection nonzero\n"
-            "CLAIM: B | TYPE: mechanistic | DEPENDS_ON: none | STATEMENT: alpha not saturated\n"
-            "CLAIM: C | TYPE: empirical | DEPENDS_ON: A | STATEMENT: converges near minima")
+    body = ("CLAIM: A | TYPE: mathematical | ROLE: bridge | DEPENDS_ON: none | STATEMENT: projection nonzero\n"
+            "CLAIM: B | TYPE: mechanistic | ROLE: novel_core | DEPENDS_ON: none | STATEMENT: alpha not saturated\n"
+            "CLAIM: C | TYPE: empirical | ROLE: prediction | DEPENDS_ON: A | STATEMENT: converges near minima")
     claims = await decompose(FC, FakeLLM(lambda a, m: body), cfg)
     assert [c.id for c in claims] == ["A", "B", "C"]
     assert claims[2].depends_on == ["A"] and claims[0].type == "mathematical"
+    assert [c.role for c in claims] == ["bridge", "novel_core", "prediction"]
+
+@pytest.mark.asyncio
+async def test_decompose_role_is_backward_compatible(cfg):
+    body = "CLAIM: A | TYPE: mathematical | DEPENDS_ON: none | STATEMENT: projection nonzero"
+    claims = await decompose(FC, FakeLLM(lambda a, m: body), cfg)
+    assert claims[0].role == "novel_core"
 
 @pytest.mark.asyncio
 async def test_decompose_empty_on_failure(cfg):

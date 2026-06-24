@@ -23,12 +23,39 @@ def scripted(script):
 BASE = {
     "formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: yes",
     "faithfulness": "FAITHFUL: yes | BACK_TRANSLATION: same",
-    "decomposer": "CLAIM: c1 | TYPE: empirical | DEPENDS_ON: none | STATEMENT: effect exists",
+    "decomposer": (
+        "CLAIM: c1 | TYPE: empirical | ROLE: novel_core | DEPENDS_ON: none | "
+        "STATEMENT: effect exists"
+    ),
     "entailment": "COVERS: complete | MISSING: none",
     "grounder": (
         "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 2 | "
         "SOURCES: A1,A2 | BASIS: ok\n"
         "CLOSEST_PRIOR: p | DELTA: d | POSITION: new"
+    ),
+    "completer": (
+        "COMPLETION_STATUS: completed_candidate | COMPLETED_IDEA: completed x | "
+        "MECHANISM: x causes y under stated assumptions | ASSUMPTIONS: a1, a2 | "
+        "WEAKEST_LINK: c1"
+    ),
+    "theory_bridge": (
+        "THEORY_FAMILY: field theory | NEAREST_THEORIES: prior model, analogy | "
+        "EXTENDS: prior model | CHALLENGES: standard null | "
+        "RECOVERS_KNOWN_LIMITS: recovers baseline when x=0 | "
+        "DEPARTURE_POINT: adds mechanism x | EXPERT_TRANSLATION: x is an added coupling"
+    ),
+    "positioning": (
+        "CLOSEST_PRIOR: prior model | SIMILARITY: same regime | "
+        "DIFFERENCE: adds x | WHAT_IS_NEW: discriminating mechanism | MUST_CITE: prior model"
+    ),
+    "known_limits": (
+        "LIMIT: x=0 baseline | RECOVERED: yes | FAILURE_IF_NOT: would contradict baseline | "
+        "REPAIR_NEEDED: add limiting derivation"
+    ),
+    "convincing_case": (
+        "ELEVATOR_VERSION: x completes y | TECHNICAL_VERSION: x modifies the baseline model | "
+        "WHY_EXISTING_THEORY_LEAVES_ROOM: prior model leaves x unconstrained | "
+        "WHY_PLAUSIBLE: mechanism is dimensionally consistent | SKEPTIC_TESTS: test t"
     ),
     "predictor": (
         "OBSERVABLE: o | EFFECT_SIZE: 2x | DISCRIMINATES_FROM: null | MEASURABLE: yes"
@@ -48,6 +75,12 @@ async def test_full_run_internally_validated(cfg):
     )
     art = await run("seed", scripted(script), cfg, backend=FakeBackend())
     assert art.status == "internally_validated"
+    assert art.completion.status == "completed_candidate"
+    assert art.claim_graph[0].role == "novel_core"
+    assert art.theory_bridge.theory_family == "field theory"
+    assert art.prior_art_positioning.what_is_new == "discriminating mechanism"
+    assert art.known_limits[0].recovered == "yes"
+    assert "dimensionally consistent" in art.convincing_case.why_plausible
 
 
 @pytest.mark.asyncio

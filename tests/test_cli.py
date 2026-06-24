@@ -45,7 +45,11 @@ async def test_run_cli_writes_json_and_report(tmp_path, cfg):
     data = json.loads(open(out["json_path"]).read())
     assert data["raw_idea"] == "seed"
     assert "status" in data
-    assert "never 'true'" in open(out["report_path"]).read()
+    report = open(out["report_path"]).read()
+    assert "never 'true'" in report
+    assert "## Completed Candidate" in report
+    assert "## Theory Bridge" in report
+    assert "## Known Limits" in report
 
 
 async def test_run_cli_accepts_explicit_run_id(tmp_path, cfg):

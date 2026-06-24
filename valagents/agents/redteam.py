@@ -17,8 +17,52 @@ def _explicit_refutation(basis: str) -> bool:
 
 def _render(art: IdeaArtifact) -> str:
     fc = art.formal_claim.statement if art.formal_claim else art.raw_idea
-    claims = "\n".join(f"- {c.id} ({c.type}): {c.statement}" for c in art.claim_graph)
-    return f"CLAIM: {fc}\nSUB-CLAIMS:\n{claims}"
+    claims = "\n".join(f"- {c.id} ({c.type}/{c.role}): {c.statement}" for c in art.claim_graph)
+    parts = [f"CLAIM: {fc}", f"SUB-CLAIMS:\n{claims}"]
+    if art.completion is not None:
+        parts.append(
+            "COMPLETED IDEA:\n"
+            f"{art.completion.completed_idea}\n"
+            f"MECHANISM: {art.completion.mechanism}\n"
+            f"ASSUMPTIONS: {', '.join(art.completion.assumptions) or 'none'}\n"
+            f"WEAKEST_LINK: {art.completion.weakest_link}"
+        )
+    if art.theory_bridge is not None:
+        parts.append(
+            "THEORY BRIDGE:\n"
+            f"FAMILY: {art.theory_bridge.theory_family}\n"
+            f"NEAREST: {', '.join(art.theory_bridge.nearest_theories) or 'none'}\n"
+            f"EXTENDS: {art.theory_bridge.extends}\n"
+            f"CHALLENGES: {art.theory_bridge.challenges}\n"
+            f"KNOWN_LIMITS: {art.theory_bridge.recovers_known_limits}\n"
+            f"DEPARTURE: {art.theory_bridge.departure_point}\n"
+            f"EXPERT_TRANSLATION: {art.theory_bridge.expert_translation}"
+        )
+    if art.prior_art_positioning is not None:
+        parts.append(
+            "PRIOR-ART POSITION:\n"
+            f"CLOSEST: {art.prior_art_positioning.closest_prior}\n"
+            f"SIMILARITY: {art.prior_art_positioning.similarity}\n"
+            f"DIFFERENCE: {art.prior_art_positioning.difference}\n"
+            f"NEW: {art.prior_art_positioning.what_is_new}\n"
+            f"MUST_CITE: {', '.join(art.prior_art_positioning.must_cite) or 'none'}"
+        )
+    if art.known_limits:
+        limits = "\n".join(
+            f"- {limit.limit}: {limit.recovered}; failure={limit.failure_if_not}; repair={limit.repair_needed}"
+            for limit in art.known_limits
+        )
+        parts.append(f"KNOWN LIMIT CHECKS:\n{limits}")
+    if art.convincing_case is not None:
+        parts.append(
+            "CONVINCING CASE:\n"
+            f"ELEVATOR: {art.convincing_case.elevator_version}\n"
+            f"TECHNICAL: {art.convincing_case.technical_version}\n"
+            f"ROOM: {art.convincing_case.why_existing_theory_leaves_room}\n"
+            f"PLAUSIBLE: {art.convincing_case.why_plausible}\n"
+            f"SKEPTIC_TESTS: {', '.join(art.convincing_case.skeptic_tests) or 'none'}"
+        )
+    return "\n\n".join(parts)
 
 
 async def red_team(art: IdeaArtifact, llm, cfg, tick: int = 0):

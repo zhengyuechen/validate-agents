@@ -17,6 +17,12 @@ def choice(value: str, allowed: set[str]) -> str | None:
     normalized = (value or "").strip().lower()
     return normalized if normalized in allowed else None
 
+def split_list(value: str) -> list[str]:
+    text = (value or "").strip()
+    if text.lower() in ("", "none", "n/a"):
+        return []
+    return [part.strip(" -") for part in re.split(r"[,;]\s*|\n+", text) if part.strip(" -")]
+
 
 def map_support_to_verdict(support: str, independent_sources: int) -> str:
     support = (support or "").strip().lower()

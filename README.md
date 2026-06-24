@@ -22,6 +22,11 @@ Agents run over a claim DAG derived from the seed idea:
 - **Entailment** — independently verifies the sub-claims jointly establish the formal claim (`gap` → caps below `internally_validated`)
 - **Grounder** — grounds each claim in external literature; absence of support stays `uncertain`, while explicit contradictions are preserved in the basis
 - **Prover** — checks derivations and well-formedness; complete definitional/mathematical derivations can independently pass, while fatal gaps become repairable uncertainty unless they report an explicit contradiction/counterexample
+- **Completer** — turns the checked skeleton into the strongest coherent completed candidate idea, with assumptions and weakest link explicit
+- **Theory-bridge** — connects the candidate to existing theory families, trusted formalisms, known limits, and expert language
+- **Prior-art positioning** — separates "where this idea lives" from whether each claim is already supported
+- **Known-limits checker** — asks whether the candidate recovers standard limits, constraints, and benchmark regimes
+- **Convincing-case builder** — writes the sober expert-facing case and the tests that would convince a skeptic
 - **Predictor** — extracts falsifiable, discriminating predictions
 - **Red-team** — adversarially attacks the artifact across four categories (counterexample, failure regime, confound, magnitude); magnitude is mandatory, and severe objections require repair/validation unless explicitly marked as contradiction/counterexample/refutation
 - **Validation-designer** — proposes the single cheapest decisive test

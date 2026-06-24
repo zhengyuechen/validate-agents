@@ -63,8 +63,66 @@ def render_report(art, refs=None) -> str:
         for claim in art.claim_graph:
             markers = "".join(f"[{n}]" for n in markers_for_claim(refs, claim.id))
             marker_text = f" {markers}" if markers else ""
-            lines.append(f"- `{claim.id}` [{claim.type}] **{claim.status}**{marker_text} - {claim.statement}")
+            lines.append(
+                f"- `{claim.id}` [{claim.type}/{claim.role}] **{claim.status}**"
+                f"{marker_text} - {claim.statement}"
+            )
         lines.append("")
+    if art.completion:
+        lines += [
+            "## Completed Candidate",
+            f"**Completion:** `{art.completion.status}`",
+            "",
+            art.completion.completed_idea,
+            "",
+            f"**Mechanism:** {art.completion.mechanism}",
+            f"**Assumptions:** {', '.join(art.completion.assumptions) or 'none'}",
+            f"**Weakest link:** {art.completion.weakest_link}",
+            "",
+        ]
+    if art.theory_bridge:
+        bridge = art.theory_bridge
+        lines += [
+            "## Theory Bridge",
+            f"**Family:** {bridge.theory_family}",
+            f"**Nearest theories:** {', '.join(bridge.nearest_theories) or 'none'}",
+            f"**Extends:** {bridge.extends}",
+            f"**Challenges:** {bridge.challenges}",
+            f"**Known limits to recover:** {bridge.recovers_known_limits}",
+            f"**Departure point:** {bridge.departure_point}",
+            f"**Expert translation:** {bridge.expert_translation}",
+            "",
+        ]
+    if art.prior_art_positioning:
+        pos = art.prior_art_positioning
+        lines += [
+            "## Prior-Art Positioning",
+            f"**Closest prior:** {pos.closest_prior}",
+            f"**Similarity:** {pos.similarity}",
+            f"**Difference:** {pos.difference}",
+            f"**What is new:** {pos.what_is_new}",
+            f"**Must cite/discuss:** {', '.join(pos.must_cite) or 'none'}",
+            "",
+        ]
+    if art.known_limits:
+        lines.append("## Known Limits")
+        for item in art.known_limits:
+            lines.append(
+                f"- **{item.limit}** — recovered: `{item.recovered}`; "
+                f"failure if not: {item.failure_if_not}; repair: {item.repair_needed}"
+            )
+        lines.append("")
+    if art.convincing_case:
+        case = art.convincing_case
+        lines += [
+            "## Convincing Case",
+            f"**Short version:** {case.elevator_version}",
+            f"**Technical version:** {case.technical_version}",
+            f"**Why existing theory leaves room:** {case.why_existing_theory_leaves_room}",
+            f"**Why plausible:** {case.why_plausible}",
+            f"**Skeptic tests:** {', '.join(case.skeptic_tests) or 'none'}",
+            "",
+        ]
     if art.validation_plan:
         plan = art.validation_plan
         lines += [

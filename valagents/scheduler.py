@@ -68,6 +68,11 @@ async def run_entry_gates(store: ArtifactStore, raw_idea: str, backend, llm, cfg
 from valagents.agents.grounder import ground_claim
 from valagents.agents.grounder import ground_novelty
 from valagents.agents.prover import prove_claim, build_derivation
+from valagents.agents.completer import complete_idea
+from valagents.agents.theory_bridge import build_theory_bridge
+from valagents.agents.positioning import position_prior_art
+from valagents.agents.known_limits import check_known_limits
+from valagents.agents.convincing_case import build_convincing_case
 from valagents.agents.predictor import predict
 from valagents.agents.redteam import red_team
 from valagents.agents.validation_designer import design_validation
@@ -153,6 +158,19 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
     novelty = await ground_novelty(art.formal_claim, backend, llm, cfg)
     if novelty is not None:
         store.set("novelty", novelty)
+    completion = await complete_idea(art, llm, cfg)
+    if completion is not None:
+        store.set("completion", completion)
+    bridge = await build_theory_bridge(art, llm, cfg)
+    if bridge is not None:
+        store.set("theory_bridge", bridge)
+    positioning = await position_prior_art(art, llm, cfg)
+    if positioning is not None:
+        store.set("prior_art_positioning", positioning)
+    store.set("known_limits", await check_known_limits(art, llm, cfg))
+    case = await build_convincing_case(art, llm, cfg)
+    if case is not None:
+        store.set("convincing_case", case)
     store.set("predictions", await predict(art.formal_claim, novelty, llm, cfg))
     attacks, surface, per_claim = await red_team(art, llm, cfg, tick=tick)
     store.set("attacks", attacks)
