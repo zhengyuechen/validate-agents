@@ -9,10 +9,19 @@ _ALLOWED = ("sin", "cos", "tan", "exp", "log", "sqrt", "Abs", "sign",
             "pi", "E", "oo", "Rational", "Integer", "Float")
 
 def _run(plan: dict) -> dict:
+    # Defense-in-depth: reject dunder strings pre-parse (blocks __import__, __class__, etc.)
+    for field in (plan["expression"], plan["expected"], str(plan["limit_point"])):
+        if "__" in field:
+            raise ValueError("rejected: '__' not allowed in plan expressions")
+    for name in plan.get("variables", []):
+        if "__" in str(name):
+            raise ValueError("rejected: '__' not allowed in variable names")
+
     import sympy
     from sympy.parsing.sympy_parser import parse_expr
     syms = {name: sympy.Symbol(name) for name in plan.get("variables", [])}
     glob = {n: getattr(sympy, n) for n in _ALLOWED}
+    glob["__builtins__"] = {}   # suppress auto-injected builtins (incl. __import__)
     local = dict(syms)
     expr = parse_expr(plan["expression"], local_dict=local, global_dict=glob, evaluate=True)
     expected = parse_expr(plan["expected"], local_dict=local, global_dict=glob, evaluate=True)

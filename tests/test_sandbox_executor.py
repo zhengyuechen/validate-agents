@@ -26,7 +26,7 @@ def test_wrong_limit_fails():
 
 def test_unparseable_or_malicious_expression_is_uncertain_not_executed():
     v = run_plan(plan(expression="__import__('os').system('echo hacked')"), cfg())
-    assert v.verdict == "uncertain" and not v.result.ok      # restricted parse rejects it; never runs code
+    assert v.verdict == "uncertain" and not v.result.ok      # '__' guard + suppressed builtins reject it pre-parse; nothing executes
 
 def test_run_plan_takes_no_llm():                    # F3: code judges, no model in the loop
     sig = inspect.signature(run_plan)
@@ -39,3 +39,14 @@ def test_artifacts_saved(tmp_path):
 def test_disabled_sandbox_is_uncertain():
     c = cfg(); c.sandbox.enabled = False
     assert run_plan(plan(), c).verdict == "uncertain"
+
+def test_dunder_expression_rejected():
+    v = run_plan(plan(expression="x.__class__"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok   # rejected pre-parse by '__' guard
+
+def test_subprocess_failure_is_uncertain(monkeypatch):
+    import valagents.sandbox.executor as ex
+    def boom(*a, **k): raise OSError("boom")
+    monkeypatch.setattr(ex.subprocess, "run", boom)
+    v = ex.run_plan(plan(), cfg())
+    assert v.verdict == "uncertain" and "boom" in v.result.error

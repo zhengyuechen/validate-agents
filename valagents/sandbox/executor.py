@@ -65,6 +65,8 @@ def run_plan(plan: ComputationPlan, cfg, artifacts_dir: str | None = None) -> Co
     except subprocess.TimeoutExpired:
         result = ComputationResult(ok=False, error="timeout",
                                    resource_use={"wall_s": cfg.sandbox.wall_s})
+    except Exception as e:
+        result = ComputationResult(ok=False, error=f"subprocess failure: {type(e).__name__}: {e}")
     if artifacts_dir:
         result.artifacts_path = _save(artifacts_dir, plan, result)
     return _verdict(plan, result)
