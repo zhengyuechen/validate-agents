@@ -473,7 +473,7 @@ git commit -m "feat(sim): _converged_monotone predicate (monotone+shrinking, rej
 ## Task 5: The honesty-check orchestrator `_bounded_observe` (§3)
 
 **Files:**
-- Modify: `valagents/sandbox/runner.py` — add `_bounded_observe` after `_converged_monotone`.
+- Modify: `valagents/sandbox/runner.py` — add `_trajectory_converges` (§3d) and `_bounded_observe` after `_converged_monotone`.
 - Test: `tests/test_simulation_executor.py` (real-numpy, calling `_bounded_observe` directly through a small helper that parses RHS the way the executor does).
 
 **Interfaces:**
@@ -481,7 +481,7 @@ git commit -m "feat(sim): _converged_monotone predicate (monotone+shrinking, rej
 - Produces:
   `_bounded_observe(rhs_exprs, var_index, env_base, y0, n_steps, dt, observable, bound, t_end, max_halvings, conv_rtol, per_refine_max_steps, np, npfuncs) -> (verdict, info, steps_used)`
   - `verdict` ∈ `{"bounded", "unbounded", "uncertain"}`.
-  - `info` is a dict for the detail row: `{"max_abs": <float | "diverged" | "refine_budget_exhausted">, "t_star": <float | None>, "refinements": <int>}`.
+  - `info` is a dict for the detail row: `{"max_abs": <float | "diverged" | "refine_budget_exhausted" | "trajectory_unconverged" | "diverged_unconfirmed" | "morph_unconfirmed">, "t_star": <float | None>, "refinements": <int>}`. The sentinels: `"diverged"` = confirmed divergence (refute); a float = bounded value (pass) or confirmed breach (refute); `"refine_budget_exhausted"` = ran out without deciding; `"trajectory_unconverged"` = §3d failed (a deep-unstable stiff artifact whose `t_of` converged but path is `dt`-divergent); `"diverged_unconfirmed"`/`"morph_unconfirmed"` = a divergence that vanished/morphed under refinement. All non-`"diverged"`/non-pass cases are `verdict="uncertain"`.
   - `steps_used` is the total integration steps consumed (base + refinements) for the cumulative budget.
   - It does NOT catch its own exceptions: a raise (e.g. a `nan` domain error from the integrator, or a bad window) propagates to the caller's `try`, which maps it to uncertain (`_u`). The "uncertain" verdict value is returned only for the *decided-uncertain* cases (vanish / recede / type-morph / non-converge / budget-exhaust).
 
@@ -496,10 +496,12 @@ git commit -m "feat(sim): _converged_monotone predicate (monotone+shrinking, rej
      - if the refinement's kind != base kind (div↔breach morph) → return `("uncertain", {... "max_abs": "morph_unconfirmed" ...}, steps_used)`.
      - else append `q_k`.
   3. **Decide** from `seq = [q0, q1, ...]` (all same kind, none vanished):
-     - `kind == "div"`: if `_converged_monotone(seq, conv_rtol)` AND `seq[-1] < t_end * (1.0 - conv_rtol)` (§3b: t* strictly inside window) → return `("unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": len(seq)-1}, steps_used)`; else `("uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": len(seq)-1}, steps_used)`. **(Finding A: NO `seq[-1] <= seq[0]` clause — `_converged_monotone`'s shrinking test already rejects a receding `t_of`, and a non-increasing clause would false-uncertain a genuine singularity whose numerical `t_of` converges from below.)**
-     - `kind == "breach"`: if `_converged_monotone(seq, conv_rtol)` AND `seq[-1] > bound` → return `("unbounded", {"max_abs": seq[-1], "t_star": None, "refinements": len(seq)-1}, steps_used)`; else `("uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": len(seq)-1}, steps_used)`.
+     - `kind == "div"`: refute (`"unbounded"`, info `"diverged"`) IFF **all three**: (i) `_converged_monotone(seq, conv_rtol)`; (ii) `seq[-1] < t_end * (1.0 - conv_rtol)` (§3b window guard); **(iii) `_trajectory_converges(div_levels, conv_rtol, np)` (§3d — the pre-overflow trajectory is `dt`-converged).** If (i)/(ii) fail → `"uncertain"` + `"refine_budget_exhausted"`; if (iii) fails → `"uncertain"` + the distinct sentinel `"trajectory_unconverged"` (a stiff numerical artifact: `t_of` converged but the path is `dt`-divergent garbage). **(i)+(ii) are necessary but NOT sufficient — a deep-unstable stiff instability (`ẋ=-1000x` at `dt=0.05`) has a converging `t_of`; (iii) is the load-bearing addition that separates a real singularity from numerical garbage. Still NO `seq[-1] <= seq[0]` clause — finding A stands; this case has *decreasing* `t_of` that would pass that clause anyway.**
+     - `kind == "breach"`: if `_converged_monotone(seq, conv_rtol)` AND `seq[-1] > bound` → return `("unbounded", {"max_abs": seq[-1], "t_star": None, "refinements": len(seq)-1}, steps_used)`; else `("uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": len(seq)-1}, steps_used)`. (The breach branch needs NO §3d check — its converged quantity is the physical `max_abs` itself, no proxy.)
 
-  `steps_used` accumulates `n_steps + sum(n_k actually run)`.
+  To support §3d, `classify` must ALSO return the partial trajectory + overflow step + step size for a div point, and the refine loop accumulates `div_levels = [(traj_k, overflow_step_k, dt_k), ...]` (one per refinement level, all overflowed). The trajectories are already in hand (the integrator returns them); §3d is pure post-processing — NO extra integration, so `steps_used` is unaffected. `steps_used` accumulates `n_steps + sum(n_k actually run)`.
+
+  **`_trajectory_converges(div_levels, conv_rtol, np, n_samples=5) -> bool` (§3d):** `t_edge = min over levels of (overflow_step_k * dt_k)` (earliest overflow time; in the deep-stiff regime the finest refinement overflows earliest, so the min bounds the common finite window). For each of `n_samples` sample times `t_s` spread across `(0, t_edge]` (biased toward `t_edge`, e.g. `f * t_edge` for `f` in evenly-spaced fractions up to ~0.9), compute the across-refinement state magnitudes `m_k = max(abs(traj_k[idx_k]))` where `idx_k = min(round(t_s/dt_k), overflow_step_k - 1)` (clamp into the finite prefix). If at ANY `t_s` the relative spread `(max(m) - min(m)) / max(abs(m)) >= conv_rtol` → return False (path is `dt`-divergent → artifact). If all `t_s` agree → True (real divergence). A `t_s` where all `m_k == 0` trivially agrees (skip). Errs toward False (uncertain) when the coarse levels disagree — the safe direction.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -533,16 +535,28 @@ def test_bounded_observe_confirmed_divergence_refutes():
     assert verdict == "unbounded" and info["max_abs"] == "diverged"
     assert 0.9 < info["t_star"] < 1.1
 
-def test_bounded_observe_stiff_artifact_uncertain():
-    # x' = -lam*x with base dt*lam above the RK4 stability boundary (~2.78): numerically unstable but TRULY
-    # bounded. Either a finer dt becomes bounded, or t_of recedes -> NOT a refutation.
+def test_bounded_observe_near_boundary_stiff_uncertain():
+    # NEAR-BOUNDARY regime: x'=-200x, dt=0.02 -> dt*lam=4.0 (unstable); dt/2 -> 2.0 (<2.78, stable) so a finer
+    # refinement is BOUNDED -> the "BOUNDED at a refinement" escape -> uncertain. Truly bounded decay.
     verdict, info, steps = _bounded({"x": "-200.0*x"}, ["x"], {}, [1.0], 200, 0.02, bound=2.0, t_end=4.0)
-    assert verdict == "uncertain"           # the load-bearing soundness test: stiff != divergent
+    assert verdict == "uncertain"
+
+def test_bounded_observe_deep_unstable_stiff_uncertain():
+    # DEEP-UNSTABLE regime (THE regression test for the t*-vs-trajectory hole, B-D8): x'=-1000x, dt=0.05 ->
+    # dt*lam=50, and 50/2^3=6.25 > 2.78 -> unstable at EVERY refinement, so it overflows at every level and
+    # t_of=[0.95,0.625,0.4375,0.40] CONVERGES (t*-convergence alone would FALSE-REFUTE). But the pre-overflow
+    # trajectory is dt-DIVERGENT garbage -> §3d fails -> uncertain. x'=-1000x is a pure decay: TRULY bounded.
+    verdict, info, steps = _bounded({"x": "-1000.0*x"}, ["x"], {}, [1.0], 100, 0.05, bound=2.0, t_end=5.0)
+    assert verdict == "uncertain" and info["max_abs"] == "trajectory_unconverged"   # caught by §3d, not §3a/§3b
 
 def test_bounded_observe_tstar_near_tend_uncertain():
-    # same x'=x^2 singularity at t*=1, but t_span ends right at ~1 -> t* within conv_rtol of t_end -> uncertain
-    verdict, info, steps = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 1000, 0.001, bound=10.0, t_end=1.0)
+    # x'=x^2 singularity at t*=1; t_end=1.05 so it DOES overflow inside the window (kind="div") but t*~=1.0 is
+    # within conv_rtol of t_end (1.0 > 0.9*1.05=0.945) -> the §3b div gate fires -> uncertain (NOT the breach path).
+    verdict, info, steps = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 1050, 0.001, bound=10.0, t_end=1.05)
     assert verdict == "uncertain"
+    # control: a wider window puts t* well inside -> refutes (proves the gate, not a blanket uncertain)
+    v2, i2, _ = _bounded({"x": "x**2"}, ["x"], {}, [1.0], 2000, 0.001, bound=10.0, t_end=2.0)
+    assert v2 == "unbounded"
 
 def test_bounded_observe_budget_exhausted_uncertain():
     # a refuting (diverging) point but per_refine_max_steps too small to take >=2 refinements -> budget exhausted
@@ -551,7 +565,7 @@ def test_bounded_observe_budget_exhausted_uncertain():
     assert verdict == "uncertain" and info["max_abs"] == "refine_budget_exhausted"
 ```
 
-(Note on the stiff test: pick `lam`, base `dt`, and `max_halvings` so `dt*lam` starts above ~2.78 and the available halvings either reach the stable regime or expose a receding `t_of`; the implementer may tune the constants so the assertion holds, but MUST keep the system truly bounded — a real decay — so a "refute" here would be the soundness bug. If tuning, keep `bound` above the true trajectory peak.)
+(Note on the two stiff tests — both are TRULY bounded decays (`x'=-λx`); a "refute" on either is the soundness bug. The near-boundary case (`λ=200, dt=0.02`) is caught by the "BOUNDED at a refinement" escape (a finer `dt` crosses below 2.78). The deep-unstable case (`λ=1000, dt=0.05`) is the regression test for B-D8: it stays unstable at every refinement and its `t_of` converges, so ONLY §3d (`trajectory_unconverged`) catches it — verified pre-implementation that `_bounded_observe` returns `uncertain` here. Do NOT weaken either assertion; if either fails, the §3d implementation or the `_trajectory_converges` sampling is wrong — fix it, don't relax the test. The confirmed-divergence test (`x'=x²`) must STILL return `unbounded` — its trajectory `dt`-converges, so it passes §3d; if §3d wrongly fails it, the sampling window is too aggressive (lower the top fraction toward `t_edge`).)
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -563,49 +577,77 @@ Expected: FAIL — `cannot import name '_bounded_observe'`.
 In `valagents/sandbox/runner.py`, after `_converged_monotone`, add:
 
 ```python
+def _trajectory_converges(div_levels, conv_rtol, np, n_samples=5):
+    """§3d — is the pre-overflow trajectory dt-converged? THE divergence discriminator (B-D8): t*-convergence
+    alone is NOT sufficient (a deep-unstable stiff instability has a converging t_of too). div_levels: list of
+    (traj, overflow_step, dt_k), one per refinement level (all overflowed). A real singularity's solution tracks
+    the true solution up to the blow-up, so the across-refinement state magnitudes AGREE at any fixed pre-overflow
+    time; a stiff artifact's path is dt-divergent garbage, orders of magnitude apart. Sample the state magnitude
+    at several t_s spread across (0, t_edge] (t_edge = earliest overflow time; bias toward the edge — NEVER a
+    single early point, where stiff refinements still sit near x0 and spuriously agree). Converged at EVERY t_s
+    -> True (real); diverges at any -> False (artifact). Errs toward False (uncertain) when coarse levels disagree."""
+    t_edge = min(ov * h for (_, ov, h) in div_levels)
+    if t_edge <= 0:
+        return False
+    for i in range(1, n_samples + 1):
+        t_s = (0.9 * i / n_samples) * t_edge                 # fractions up to 0.9*t_edge, biased toward the edge
+        mags = []
+        for (traj, ov, h) in div_levels:
+            idx = min(int(round(t_s / h)), ov - 1)           # clamp into the finite prefix [0, ov-1]
+            mags.append(float(np.max(np.abs(traj[idx]))))
+        mmax = max(abs(m) for m in mags)
+        if mmax <= 0.0:
+            continue                                         # all zero here -> trivially agree
+        if (max(mags) - min(mags)) / mmax >= conv_rtol:      # disagree at this t_s -> dt-divergent path
+            return False
+    return True
+
 def _bounded_observe(rhs_exprs, var_index, env_base, y0, n_steps, dt, observable, bound, t_end,
                      max_halvings, conv_rtol, per_refine_max_steps, np, npfuncs):
     """§3 honesty check for ONE grid point of a bounded claim (max_abs, op='le', threshold=bound).
     Returns (verdict, info, steps_used). verdict in {'bounded','unbounded','uncertain'}. A refuting point
-    (overflow OR finite max_abs>bound) refutes ONLY if its refuting quantity converges monotone+shrinking
-    (and, for a divergence, t* is non-receding and strictly inside the window). Anything else -> uncertain.
-    Raises propagate -> uncertain upstream. Deterministic: fixed dt->dt/2 sequence; integer step budget."""
+    (overflow OR finite max_abs>bound) refutes ONLY if its refuting quantity converges monotone+shrinking; a
+    DIVERGENCE additionally requires t* strictly inside the window (§3b) AND a dt-converged pre-overflow
+    trajectory (§3d — t*-convergence alone is insufficient, B-D8). Anything else -> uncertain. Raises propagate
+    -> uncertain upstream. Deterministic: fixed dt->dt/2 sequence; integer step budget."""
     def classify(ns, h):
         traj, overflow = _rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, ns, h, np, npfuncs)
         if overflow is not None:
-            return "div", overflow * h
+            return "div", overflow * h, (traj, overflow, h)
         m = _extract_observable(traj, var_index, observable, np)
-        return ("breach", m) if m > bound else ("bounded", m)
+        return (("breach", m, None) if m > bound else ("bounded", m, None))
 
     steps_used = n_steps
-    kind, q0 = classify(n_steps, dt)
+    kind, q0, lvl0 = classify(n_steps, dt)
     if kind == "bounded":
         return "bounded", {"max_abs": q0, "t_star": None, "refinements": 0}, steps_used
     seq = [q0]
+    div_levels = [lvl0] if kind == "div" else []
     for k in range(1, max_halvings + 1):
         n_k = n_steps * (2 ** k)
         if n_k > per_refine_max_steps:
             return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None,
                                  "refinements": k - 1}, steps_used
         steps_used += n_k
-        rk, rq = classify(n_k, dt / (2 ** k))
+        rk, rq, lvl = classify(n_k, dt / (2 ** k))
         if rk == "bounded":                                  # refutation vanished under refinement -> artifact
             note = q0 if kind == "breach" else "diverged_unconfirmed"
             return "uncertain", {"max_abs": note, "t_star": None, "refinements": k}, steps_used
         if rk != kind:                                       # divergence<->breach morph -> receding -> artifact
             return "uncertain", {"max_abs": "morph_unconfirmed", "t_star": None, "refinements": k}, steps_used
         seq.append(rq)
+        if kind == "div":
+            div_levels.append(lvl)
     refs = len(seq) - 1
     if kind == "div":
-        # Finding A: rely on _converged_monotone (its shrinking test already rejects a receding t_of) + the §3b
-        # window guard. A "seq[-1] <= seq[0]" clause would assume t_of approaches t* FROM ABOVE and would
-        # false-uncertain a genuine singularity whose numerical t_of converges from below — drop it.
-        converged = (_converged_monotone(seq, conv_rtol)
-                     and seq[-1] < t_end * (1.0 - conv_rtol))               # §3b: t* strictly inside the window
-        if converged:
-            return "unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": refs}, steps_used
-        return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used
-    # kind == "breach"
+        # B-D8: t*-convergence (necessary) + §3b window + §3d pre-overflow trajectory convergence (sufficient).
+        # NO "seq[-1] <= seq[0]" clause (finding A stands; the deep-unstable case has DECREASING t_of anyway).
+        if not (_converged_monotone(seq, conv_rtol) and seq[-1] < t_end * (1.0 - conv_rtol)):
+            return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used
+        if not _trajectory_converges(div_levels, conv_rtol, np):            # §3d: stiff artifact -> uncertain
+            return "uncertain", {"max_abs": "trajectory_unconverged", "t_star": seq[-1], "refinements": refs}, steps_used
+        return "unbounded", {"max_abs": "diverged", "t_star": seq[-1], "refinements": refs}, steps_used
+    # kind == "breach" (no §3d needed: the converged quantity is the physical max_abs, no proxy)
     if _converged_monotone(seq, conv_rtol) and seq[-1] > bound:
         return "unbounded", {"max_abs": seq[-1], "t_star": None, "refinements": refs}, steps_used
     return "uncertain", {"max_abs": "refine_budget_exhausted", "t_star": None, "refinements": refs}, steps_used
