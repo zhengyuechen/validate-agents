@@ -9,7 +9,7 @@ from valagents.agents.base import build_messages
 
 _FIELDS = ("primitive", "state_vars", "rhs", "params", "init", "param_sweep", "init_sweep",
            "t_span", "dt", "observable", "sim_criterion", "robust_frac",
-           "max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes")
+           "max_steps", "max_grid_points", "max_state_vars", "max_expr_nodes", "null_overrides")
 
 def _extract_json(text: str):
     blocks = re.findall(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)

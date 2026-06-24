@@ -372,9 +372,14 @@ min_value) with its var and window_frac in (0,1], a structured criterion {{"op":
 fraction of the swept grid on which the criterion must hold). Include positive caps: max_steps, \
 max_grid_points, max_state_vars, max_expr_nodes.
 
-Output the plan as a SINGLE JSON object in a ```json fenced block, with exactly these keys: primitive, \
-state_vars, rhs, params, init, param_sweep, init_sweep, t_span, dt, observable, sim_criterion, robust_frac, \
-max_steps, max_grid_points, max_state_vars, max_expr_nodes."""
+To test ATTRIBUTION (that the behavior is caused by the proposed mechanism, not incidental), parameterize the \
+mechanism's coupling as a named parameter and give its OFF-value in null_overrides (e.g. a coupling "g" with \
+null_overrides {{"g": "0"}}); the executor then requires the behavior to appear WITH the mechanism and vanish \
+WITHOUT it. Omit null_overrides only if the mechanism cannot be turned off by a parameter.
+
+Output the plan as a SINGLE JSON object in a ```json fenced block, with these keys: primitive, state_vars, \
+rhs, params, init, param_sweep, init_sweep, t_span, dt, observable, sim_criterion, robust_frac, max_steps, \
+max_grid_points, max_state_vars, max_expr_nodes, and (optional) null_overrides."""
 
 ARBITER = COMMON_RUBRIC + """
 

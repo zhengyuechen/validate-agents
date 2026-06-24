@@ -22,6 +22,11 @@ PASS_BODY = "Here is the plan.\n```json\n" + json.dumps(PLAN) + "\n```"
 FAIL_PLAN = {**PLAN, "sim_criterion": {"op": "le", "threshold": ["1e-9"]}}   # never met -> robust fail
 FAIL_BODY = "```json\n" + json.dumps(FAIL_PLAN) + "\n```"
 
+DISC_PLAN = {**PLAN, "null_overrides": {"a": "0"}}
+DISC_BODY = "```json\n" + json.dumps(DISC_PLAN) + "\n```"
+NOTNEC_PLAN = {**PLAN, "null_overrides": {"a": "0"}, "sim_criterion": {"op": "le", "threshold": ["2.0"]}}
+NOTNEC_BODY = "```json\n" + json.dumps(NOTNEC_PLAN) + "\n```"
+
 def _store(role="novel_core", load_bearing=True, mechanistic=True):
     claim = AtomicClaim(id="m1", statement="mechanism M produces oscillation",
                         type=("mechanistic" if mechanistic else "empirical"),
@@ -94,3 +99,23 @@ def test_simulation_does_not_satisfy_magnitude_teeth():
 def test_evaluate_ignores_simulation_fields():
     assert "simulation" not in inspect.getsource(IdeaArtifact._evaluate)
     assert "primitive" not in inspect.getsource(IdeaArtifact._evaluate)
+
+async def test_designer_emits_null_overrides():
+    s = _store()
+    p = await design_simulation(s.current.claim_graph[0], s.current, router(DISC_BODY), cfg())
+    assert p is not None and p.null_overrides == {"a": "0"}
+
+async def test_discriminating_pass_is_discounted_survived():
+    s = _store()
+    await run_simulation_checks(s, router(DISC_BODY), cfg())
+    sims = [a for a in s.current.attacks if a.type == "simulation"]
+    assert sims and sims[0].status == "survived"            # discounted positive
+    assert s.current.claim_graph[0].checks == []            # no CheckRecord injected
+    assert "simulation" in s.current.attack_surface.attempted
+
+async def test_behavior_without_mechanism_challenges():
+    s = _store(role="novel_core", load_bearing=True)
+    await run_simulation_checks(s, router(NOTNEC_BODY), cfg())
+    sims = [a for a in s.current.attacks if a.type == "simulation"]
+    assert sims and sims[0].status == "landed" and sims[0].severity == "fatal"
+    assert s.current.verdict_class == "challenged"
