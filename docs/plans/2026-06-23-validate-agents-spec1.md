@@ -1980,7 +1980,7 @@ Implementer note: the loop re-forks while landed fatal/major attacks remain. Whe
 - Consumes: `IdeaArtifact`, `AtomicClaim`, `CheckRecord`, `Source` (with the Task-10-addendum `title`/`url`/`year`).
 - Produces: `Reference` (pydantic); `detect_kind(id)->"arxiv"|"doi"|"unknown"`; `normalize_id(id)->str`; `Resolver` Protocol (`async resolve(id)->Reference|None`); `ArxivResolver`, `DoiResolver`, `DefaultResolver` (dispatches by kind); `async load_provided(path,resolver)->list[Reference]`; `collect_retrieved(artifact)->list[Reference]`; `async build_references(artifact,provided_path=None,resolver=None)->list[Reference]`; `to_bibtex(refs)->str`; `markers_for_claim(refs,claim_id)->list[int]`.
 
-- [ ] **Step 1: Write the failing tests** `tests/test_references.py`:
+- [x] **Step 1: Write the failing tests** `tests/test_references.py`:
 
 ```python
 from valagents.references import (Reference, detect_kind, normalize_id, collect_retrieved,
@@ -2038,9 +2038,9 @@ def test_markers_for_claim():
     assert markers_for_claim(refs, "c1") == [1]
 ```
 
-- [ ] **Step 2: Run → FAIL.** `python -m pytest tests/test_references.py -v`
+- [x] **Step 2: Run → FAIL.** `python -m pytest tests/test_references.py -v`
 
-- [ ] **Step 3: Implement `valagents/references.py`:**
+- [x] **Step 3: Implement `valagents/references.py`:**
 
 ```python
 """References & citations: resolve identifiers, aggregate retrieved + provided sources, emit BibTeX."""
@@ -2214,8 +2214,8 @@ def to_bibtex(refs: list[Reference]) -> str:
     return "\n\n".join(blocks) + ("\n" if blocks else "")
 ```
 
-- [ ] **Step 4: Run → PASS.** `python -m pytest tests/test_references.py -v`
-- [ ] **Step 5: Commit.** `git add -A && git commit -m "feat(references): identifier resolver + retrieved/provided merge + BibTeX + citation map"`
+- [x] **Step 4: Run → PASS.** `python -m pytest tests/test_references.py -v`
+- [x] **Step 5: Commit.** `git add -A && git commit -m "feat(references): identifier resolver + retrieved/provided merge + BibTeX + citation map"`
 
 ---
 

@@ -1,5 +1,6 @@
 pydantic>=2
 openai>=1.0
+httpx
 tenacity
 python-dotenv
 pyyaml
