@@ -35,3 +35,31 @@ async def test_design_validation(cfg):
     art = IdeaArtifact(raw_idea="s", formal_claim=FC)
     plan = await design_validation(art, FakeLLM(lambda a, m: body), cfg)
     assert plan.cost == "low" and "benchmark" in plan.decisive_test
+
+
+@pytest.mark.asyncio
+async def test_red_team_reask_path_parses_attacks(cfg):
+    """First call has ATTEMPTED but no valid ATTACK rows; second call supplies the rows."""
+    first_body = "ATTEMPTED: counterexample, magnitude\nNo valid attack lines here."
+    second_body = ("ATTACK: counterexample | SEVERITY: major | STATUS: landed | TARGET: c1 | BASIS: found gap\n"
+                   "ATTACK: magnitude | SEVERITY: minor | STATUS: survived | TARGET: none | BASIS: small effect")
+    bodies = iter([first_body, second_body])
+    art = IdeaArtifact(raw_idea="s", formal_claim=FC,
+                       claim_graph=[AtomicClaim(id="c1", statement="alpha", type="mechanistic")])
+    attacks, surface, per_claim = await red_team(art, FakeLLM(lambda a, m: next(bodies)), cfg)
+    assert len(attacks) == 2
+    assert any(a.status == "landed" and a.severity == "major" for a in attacks)
+    assert per_claim and per_claim[0][0] == "c1"
+
+
+@pytest.mark.asyncio
+async def test_red_team_skips_malformed_severity(cfg):
+    """A line with bad severity is skipped; a valid line is returned without raising."""
+    body = ("ATTACK: x | SEVERITY: critical | STATUS: landed | TARGET: c1 | BASIS: bad sev\n"
+            "ATTACK: y | SEVERITY: fatal | STATUS: landed | TARGET: c1 | BASIS: valid")
+    art = IdeaArtifact(raw_idea="s", formal_claim=FC,
+                       claim_graph=[AtomicClaim(id="c1", statement="alpha", type="mechanistic")])
+    attacks, surface, per_claim = await red_team(art, FakeLLM(lambda a, m: body), cfg)
+    assert len(attacks) == 1
+    assert attacks[0].severity == "fatal"
+    assert per_claim and per_claim[0][1].verdict == "fail"

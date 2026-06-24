@@ -52,11 +52,11 @@ async def _attempt(agent, messages, required_keys, llm, multi):
                                   {"role": "user", "content": _reask(required_keys)}]
         body2 = await llm.complete(agent, reask)
         try:
-            return parse(body2, required_keys), (body, body2)
+            return parse(body2, required_keys), body2
         except StrictTailError:
             log.warning("strict-tail double failure agent=%s\n--body1--\n%s\n--body2--\n%s",
                         agent, body, body2)
-            return None, (body, body2)
+            return None, body2
 
 async def checked(agent, messages, required_keys, *, llm: LLMClient) -> dict | None:
     out, _ = await _attempt(agent, messages, required_keys, llm, multi=False)
@@ -65,3 +65,9 @@ async def checked(agent, messages, required_keys, *, llm: LLMClient) -> dict | N
 async def checked_lines(agent, messages, required_keys, *, llm: LLMClient) -> list[dict] | None:
     out, _ = await _attempt(agent, messages, required_keys, llm, multi=True)
     return out
+
+async def checked_lines_body(agent, messages, required_keys, *, llm: LLMClient) -> tuple[list[dict] | None, str]:
+    """Like checked_lines, but also returns the body the rows were parsed from
+    (so a caller can parse an extra line, e.g. ATTEMPTED, from the SAME body)."""
+    rows, body = await _attempt(agent, messages, required_keys, llm, multi=True)
+    return rows, body
