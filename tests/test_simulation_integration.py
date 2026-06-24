@@ -12,7 +12,7 @@ def cfg():
 
 PLAN = {
     "primitive": "ode_integrate", "state_vars": ["x"], "rhs": {"x": "-a*x"},
-    "params": {"a": "1.0"}, "init": {"x": "1.0"}, "t_span": ["0", "5"], "dt": "0.01",
+    "params": {}, "init": {"x": "1.0"}, "t_span": ["0", "5"], "dt": "0.01",
     "param_sweep": {"a": ["0.8", "1.2", "5"]},
     "observable": {"name": "final_value", "var": "x", "window_frac": "0.1"},
     "sim_criterion": {"op": "le", "threshold": ["0.2"]}, "robust_frac": "0.8",
@@ -123,7 +123,7 @@ async def test_behavior_without_mechanism_challenges():
 
 NUMERIC_PLAN = {
     "primitive": "ode_integrate", "state_vars": ["x"], "rhs": {"x": "-a*x"},
-    "params": {"a": 1.0}, "init": {"x": 1.0}, "t_span": [0, 5], "dt": 0.01,
+    "params": {}, "init": {"x": 1.0}, "t_span": [0, 5], "dt": 0.01,
     "param_sweep": {"a": [0.8, 1.2, 5]},
     "observable": {"name": "final_value", "var": "x", "window_frac": 0.1},
     "sim_criterion": {"op": "le", "threshold": [0.2]}, "robust_frac": 0.8,
@@ -137,7 +137,7 @@ async def test_designer_coerces_numeric_json_values():
     p = await design_simulation(s.current.claim_graph[0], s.current, router(NUMERIC_BODY), cfg())
     assert p is not None                                   # was None before the fix (ValidationError swallowed)
     assert p.dt == "0.01"                                  # float scalar -> str
-    assert p.params == {"a": "1.0"} and p.init == {"x": "1.0"}   # dict[str,str] values coerced
+    assert p.params == {} and p.init == {"x": "1.0"}      # dict[str,str] values coerced (init numeric->str)
     assert p.null_overrides == {"a": "0"}                  # null_overrides numeric value coerced
     assert p.param_sweep == {"a": ["0.8", "1.2", "5"]}     # nested sweep values coerced
     assert p.t_span == ["0", "5"]                          # list[str] elements coerced
@@ -168,7 +168,7 @@ async def test_bool_value_rejected():
 
 LS_PLAN = {
     "primitive": "linear_stability", "state_vars": ["x"], "rhs": {"x": "-a*x"},
-    "params": {"a": "1.0"}, "fixed_point": {"x": "0"},
+    "params": {}, "fixed_point": {"x": "0"},
     "param_sweep": {"a": ["0.5", "2.0", "6"]},
     "sim_criterion": {"op": "lt", "threshold": ["0"]}, "robust_frac": "1",
     "max_grid_points": 50, "max_state_vars": 4, "max_expr_nodes": 50,

@@ -333,6 +333,9 @@ def _run_simulation(plan: dict) -> dict:
             return _u(f"name(s) used as both state var and parameter: {sorted(collisions)}")
         if len(state_vars) != len(set(state_vars)):
             return _u(f"duplicate state_vars: {sorted({v for v in state_vars if state_vars.count(v) > 1})}")
+        param_overlap = set(plan.get("params", {})) & set(plan.get("param_sweep", {}))
+        if param_overlap:
+            return _u(f"name(s) both fixed (params) and swept (param_sweep): {sorted(param_overlap)}")
         null_overrides = plan.get("null_overrides", {})
         bad_null = set(null_overrides) - param_names_set
         if bad_null:                                  # NC-D4: a null override may only touch a declared coupling param

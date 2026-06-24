@@ -7,7 +7,7 @@ def cfg():
 
 def splan(**kw):
     base = dict(kind="simulation", primitive="ode_integrate", state_vars=["x"],
-                rhs={"x": "-a*x"}, params={"a": "1.0"}, init={"x": "1.0"},
+                rhs={"x": "-a*x"}, params={}, init={"x": "1.0"},
                 t_span=["0", "5"], dt="0.01",
                 param_sweep={"a": ["0.8", "1.2", "5"]},
                 observable={"name": "final_value", "var": "x", "window_frac": "0.1"},
@@ -138,10 +138,10 @@ def test_name_collision_state_var_and_param_uncertain():
                        observable={"name": "final_value", "var": "a", "window_frac": "0.1"}), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
 
-def test_param_in_both_params_and_param_sweep_is_ok():
-    # the LEGIT pattern (fixed default + swept range for the same param) must NOT be flagged
-    v = run_plan(splan(), cfg())   # splan has params={"a":"1.0"}, param_sweep={"a":[...]}
-    assert v.verdict in ("pass", "fail")   # runs (not uncertain from a false collision)
+def test_param_in_both_params_and_param_sweep_rejected():
+    # a name fixed AND swept is ambiguous (fixed value silently dead) -> fail-closed
+    v = run_plan(splan(params={"a": "1.0"}, param_sweep={"a": ["0.8", "1.2", "5"]}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
 
 def test_projected_grid_cap_before_materializing_uncertain():
     # a sweep whose projected product exceeds max_grid_points -> uncertain (without building the huge list)
@@ -154,7 +154,7 @@ def test_duplicate_state_vars_uncertain():
 
 def lsplan(**kw):
     base = dict(kind="simulation", primitive="linear_stability", state_vars=["x"],
-                rhs={"x": "-a*x"}, params={"a": "1.0"}, fixed_point={"x": "0"},
+                rhs={"x": "-a*x"}, params={}, fixed_point={"x": "0"},
                 param_sweep={"a": ["0.5", "2.0", "6"]},
                 sim_criterion={"op": "lt", "threshold": ["0"]}, robust_frac="1",
                 max_grid_points=50, max_state_vars=4, max_expr_nodes=50)
@@ -179,7 +179,7 @@ def test_linstab_instability_onset_confirm():
 
 def test_linstab_parametric_fixed_point():
     # f = a - b*x^2 -> x* = sqrt(a/b); Jacobian d f/dx = -2 b x = -2 sqrt(a b) < 0 -> stable
-    v = run_plan(lsplan(state_vars=["x"], rhs={"x": "a - b*x**2"}, params={"a": "1.0", "b": "1.0"},
+    v = run_plan(lsplan(state_vars=["x"], rhs={"x": "a - b*x**2"}, params={"b": "1.0"},
                         fixed_point={"x": "sqrt(a/b)"},
                         param_sweep={"a": ["1.0", "4.0", "6"]}), cfg())
     assert v.verdict == "pass" and v.result.matched == "confirm"
