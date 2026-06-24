@@ -51,7 +51,7 @@ async def test_full_run_internally_validated(cfg):
 
 
 @pytest.mark.asyncio
-async def test_fatal_attack_through_cap_refuted(cfg):
+async def test_fatal_attack_through_cap_needs_experiment(cfg):
     script = dict(BASE)
     script["redteam"] = (
         "ATTEMPTED: counterexample, magnitude\n"
@@ -61,7 +61,8 @@ async def test_fatal_attack_through_cap_refuted(cfg):
 
     art = await run("seed", scripted(script), cfg, backend=FakeBackend())
 
-    assert art.status == "refuted"
+    assert art.status == "needs_experiment"
+    assert art.blocker["reason"] == "severe_objection"
     assert art.repairs_spent == cfg.gate.repair_cap
     assert art.finalized is True
 

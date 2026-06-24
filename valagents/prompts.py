@@ -127,7 +127,8 @@ Checklist by claim type:
 
 Use "complete" only when the derivation/argument reaches the sub-claim without hand-waving.
 Use "gapped" when a premise, lemma, measurement condition, or causal bridge is missing.
-Set FATAL_GAP to yes when the missing step is load-bearing enough that the sub-claim cannot stand.
+Set FATAL_GAP to yes when the missing step is load-bearing enough that the sub-claim cannot currently stand, but a fatal gap is not by itself a falsification.
+If the sub-claim is actually contradicted, begin GAPS with "CONTRADICTION:" or "COUNTEREXAMPLE:" and describe the contradiction.
 
 SUB-CLAIM ({ctype}): {statement}
 
@@ -160,14 +161,15 @@ Attempt all applicable attack categories:
 - magnitude: strip the framing and estimate whether the mechanism changes any measurable quantity at the relevant scale, including orders of magnitude.
 
 Severity definitions:
-- fatal = a contradiction, counterexample, or scale check collapses a load-bearing claim.
-- major = a material unresolved objection requiring experiment, computation, or repair, but not yet a refutation.
+- fatal = a contradiction, counterexample, or scale check appears to collapse a load-bearing claim and requires repair or decisive validation.
+- major = a material unresolved objection requiring experiment, computation, or repair, but not a refutation.
 - minor = a caveat or weakness that lowers confidence but does not block the claim.
 
 Status rules:
 - Use "landed" when the attack exposes a real unresolved problem.
 - Use "survived" only when the artifact directly answers the attack in the supplied text.
 - Do not soften a landed attack because it seems fixable; the repairer handles fixes.
+- For an actual refutation, begin BASIS with "CONTRADICTION:", "COUNTEREXAMPLE:", or "REFUTES:" and state exactly what breaks.
 - Magnitude must be attempted when any physical, statistical, computational, or measurable scale is relevant.
 
 ARTIFACT:

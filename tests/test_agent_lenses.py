@@ -68,8 +68,17 @@ async def test_prover_definitional_wellformed(cfg):
 
 
 @pytest.mark.asyncio
-async def test_prover_fatal_gap_fails(cfg):
+async def test_prover_fatal_gap_is_uncertain_and_repairable(cfg):
     body = "DERIVATION: gapped | GAPS: d1 | FATAL_GAP: yes"
+    rec = await prove_claim(AtomicClaim(id="d1", statement="x", type="mathematical"),
+                            FC, FakeLLM(lambda a, m: body), cfg)
+    assert rec.verdict == "uncertain"
+    assert rec.basis.startswith("FATAL_DERIVATION_GAP:")
+
+
+@pytest.mark.asyncio
+async def test_prover_explicit_contradiction_fails(cfg):
+    body = "DERIVATION: gapped | GAPS: CONTRADICTION: violates premise p | FATAL_GAP: yes"
     rec = await prove_claim(AtomicClaim(id="d1", statement="x", type="mathematical"),
                             FC, FakeLLM(lambda a, m: body), cfg)
     assert rec.verdict == "fail"
@@ -114,12 +123,27 @@ async def test_grounder_unmatched_label_bare_source(cfg):
 async def test_build_derivation_records_empty_basis_fatal_gap(cfg):
     """Fix 2: a fatal-gap CheckRecord with basis='' must not be silently dropped."""
     # Directly construct a CheckRecord with empty basis (the falsy case the old filter dropped)
-    fatal_rec = CheckRecord(lens="prover", verdict="fail", basis="", independent_sources=0)
+    fatal_rec = CheckRecord(
+        lens="prover",
+        verdict="uncertain",
+        basis="FATAL_DERIVATION_GAP: ",
+        independent_sources=0,
+    )
     claim = AtomicClaim(id="d1", statement="x", type="mathematical")
     claim.checks.append(fatal_rec)
     body = "DERIVATION: complete | GAPS: none | FATAL_GAP: no"  # LLM body (unused by build_derivation)
     derivation = await build_derivation(FC, [claim], FakeLLM(lambda a, m: body), cfg)
     assert len(derivation.gaps) == 1   # must not be empty despite basis==""
+    assert derivation.gaps[0].fatal is True
+
+
+@pytest.mark.asyncio
+async def test_mechanistic_prover_pass_is_not_external_support(cfg):
+    body = "DERIVATION: complete | GAPS: none | FATAL_GAP: no"
+    rec = await prove_claim(AtomicClaim(id="m1", statement="mechanism", type="mechanistic"),
+                            FC, FakeLLM(lambda a, m: body), cfg)
+    assert rec.verdict == "pass"
+    assert rec.independent_sources == 0
 
 
 # ---------------------------------------------------------------------------

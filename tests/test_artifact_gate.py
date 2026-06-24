@@ -24,15 +24,15 @@ def test_internally_validated():
 # --- entry gates (I3) ---
 def test_not_falsifiable():
     a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
-    assert a.status == "refuted" and a.blocker["reason"] == "not_falsifiable"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "not_falsifiable"
 
 def test_unfaithful_drift_after_retry():
     a = art(faithfulness=Faithfulness(verdict="no", retried=True))
-    assert a.status == "refuted" and a.blocker["reason"] == "unfaithful_drift"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "unfaithful_drift"
 
 def test_unfaithful_narrowed_after_retry():
     a = art(faithfulness=Faithfulness(verdict="narrowed", retried=True))
-    assert a.status == "refuted" and a.blocker["reason"] == "unfaithful_narrowed"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "unfaithful_narrowed"
 
 def test_faithfulness_none_cannot_validate():        # the SPOF-in-code test (rev 3)
     a = art(faithfulness=None)
@@ -40,7 +40,7 @@ def test_faithfulness_none_cannot_validate():        # the SPOF-in-code test (re
 
 def test_empty_graph_ill_formed():
     a = art(claim_graph=[])
-    assert a.status == "refuted" and a.blocker["reason"] == "ill_formed"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "ill_formed"
 
 # --- refutation ---
 def test_failed_claim():
@@ -49,7 +49,7 @@ def test_failed_claim():
 
 def test_fatal_attack_landed():
     a = art(attacks=[Attack(type="counterexample", severity="fatal", status="landed", target_claim_id="c1")])
-    assert a.status == "refuted" and a.blocker["reason"] == "attacked"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "severe_objection"
 
 # --- needs_experiment ---
 def test_uncertain_claim():
@@ -77,11 +77,11 @@ def test_minor_landed_still_validates():
     a = art(attacks=[Attack(type="confound", severity="minor", status="landed")])
     assert a.status == "internally_validated"
 
-# --- repair-cap exhaustion (D5) ---
-def test_repair_cap_exhaustion_refuted():
+# --- repair-cap exhaustion leaves an unresolved objection ---
+def test_repair_cap_exhaustion_needs_experiment():
     a = art(repairs_spent=3, repair_cap=3,
             attacks=[Attack(type="counterexample", severity="fatal", status="landed")])
-    assert a.status == "refuted"
+    assert a.status == "needs_experiment"
 
 # --- non-terminal draft (I3: scheduler keeps going) ---
 def test_draft_when_unfinalized_pending():
@@ -92,7 +92,7 @@ def test_draft_when_unfinalized_pending():
 # --- unformalizable (I3 totality hole fix) ---
 def test_unformalizable_when_finalized_without_formal_claim():
     a = IdeaArtifact(raw_idea="s", finalized=True)
-    assert a.status == "refuted" and a.blocker["reason"] == "unformalizable"
+    assert a.status == "needs_experiment" and a.blocker["reason"] == "unformalizable"
 
 def test_draft_when_not_finalized_without_formal_claim():
     a = IdeaArtifact(raw_idea="s")

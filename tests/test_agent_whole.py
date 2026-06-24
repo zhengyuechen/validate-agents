@@ -62,4 +62,18 @@ async def test_red_team_skips_malformed_severity(cfg):
     attacks, surface, per_claim = await red_team(art, FakeLLM(lambda a, m: body), cfg)
     assert len(attacks) == 1
     assert attacks[0].severity == "fatal"
+    assert per_claim and per_claim[0][1].verdict == "uncertain"
+
+
+@pytest.mark.asyncio
+async def test_red_team_explicit_refutation_marks_claim_fail(cfg):
+    body = (
+        "ATTEMPTED: counterexample, magnitude\n"
+        "ATTACK: counterexample | SEVERITY: fatal | STATUS: landed | TARGET: c1 | "
+        "BASIS: COUNTEREXAMPLE: assumptions hold but conclusion reverses"
+    )
+    art = IdeaArtifact(raw_idea="s", formal_claim=FC,
+                       claim_graph=[AtomicClaim(id="c1", statement="alpha", type="mechanistic")])
+    attacks, surface, per_claim = await red_team(art, FakeLLM(lambda a, m: body), cfg)
+    assert len(attacks) == 1
     assert per_claim and per_claim[0][1].verdict == "fail"

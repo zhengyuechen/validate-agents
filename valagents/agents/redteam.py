@@ -11,6 +11,10 @@ _CATS = ["counterexample", "failure_regime", "confound", "magnitude"]
 _ATTACK_KEYS = ["ATTACK", "SEVERITY", "STATUS", "TARGET", "BASIS"]
 
 
+def _explicit_refutation(basis: str) -> bool:
+    return basis.strip().upper().startswith(("CONTRADICTION:", "COUNTEREXAMPLE:", "REFUTES:"))
+
+
 def _render(art: IdeaArtifact) -> str:
     fc = art.formal_claim.statement if art.formal_claim else art.raw_idea
     claims = "\n".join(f"- {c.id} ({c.type}): {c.statement}" for c in art.claim_graph)
@@ -43,8 +47,9 @@ async def red_team(art: IdeaArtifact, llm, cfg, tick: int = 0):
                    status=status, target_claim_id=tgt, basis=r["basis"])
         attacks.append(a)
         if a.status == "landed" and a.severity == "fatal" and tgt:
-            per_claim.append((tgt, CheckRecord(lens="redteam", verdict="fail",
-                                               basis=a.basis, independent_sources=1, tick=tick)))
+            verdict = "fail" if _explicit_refutation(a.basis) else "uncertain"
+            per_claim.append((tgt, CheckRecord(lens="redteam", verdict=verdict,
+                                               basis=a.basis, independent_sources=0, tick=tick)))
 
     surface = AttackSurface(attempted=attempted, skipped=[c for c in _CATS if c not in attempted])
     return attacks, surface, per_claim

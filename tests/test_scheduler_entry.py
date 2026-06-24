@@ -21,18 +21,18 @@ async def test_not_falsifiable_terminates(cfg):
     s = store()
     llm = FakeLLM(router({"formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: no"}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
-    assert proceed is False and s.current.status == "refuted" and s.current.blocker["reason"] == "not_falsifiable"
+    assert proceed is False and s.current.status == "needs_experiment" and s.current.blocker["reason"] == "not_falsifiable"
 
 
 @pytest.mark.asyncio
-async def test_unfaithful_retries_then_refuted(cfg):
+async def test_unfaithful_retries_then_needs_experiment(cfg):
     s = store()
     llm = FakeLLM(router({
         "formalizer": "CLAIM: narrow x | VARIABLES: n | REGIME: any | FALSIFIABLE: yes",
         "faithfulness": "FAITHFUL: narrowed | BACK_TRANSLATION: only a special case",
         "decomposer": "CLAIM: A | TYPE: empirical | DEPENDS_ON: none | STATEMENT: s"}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
-    assert proceed is False and s.current.status == "refuted"
+    assert proceed is False and s.current.status == "needs_experiment"
     assert s.current.blocker["reason"] == "unfaithful_narrowed" and s.current.faithfulness.retried is True
 
 
@@ -44,7 +44,7 @@ async def test_empty_decomposition_ill_formed(cfg):
         "faithfulness": "FAITHFUL: yes | BACK_TRANSLATION: same",
         "decomposer": "no rows here"}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
-    assert proceed is False and s.current.status == "refuted" and s.current.blocker["reason"] == "ill_formed"
+    assert proceed is False and s.current.status == "needs_experiment" and s.current.blocker["reason"] == "ill_formed"
 
 
 @pytest.mark.asyncio
@@ -53,7 +53,7 @@ async def test_unformalizable_terminates(cfg):
     llm = FakeLLM(router({"formalizer": "I cannot parse this into a formal claim."}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
     assert proceed is False
-    assert s.current.status == "refuted"
+    assert s.current.status == "needs_experiment"
     assert s.current.blocker["reason"] == "unformalizable"
 
 
@@ -70,7 +70,7 @@ async def test_clean_entry_proceeds(cfg):
 
 
 @pytest.mark.asyncio
-async def test_malformed_faithfulness_label_refutes_instead_of_raising(cfg):
+async def test_malformed_faithfulness_label_needs_experiment_instead_of_raising(cfg):
     s = store()
     llm = FakeLLM(router({
         "formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: yes",
@@ -80,7 +80,7 @@ async def test_malformed_faithfulness_label_refutes_instead_of_raising(cfg):
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
 
     assert proceed is False
-    assert s.current.status == "refuted"
+    assert s.current.status == "needs_experiment"
     assert s.current.blocker["reason"] == "unfaithful_drift"
 
 
@@ -96,7 +96,7 @@ async def test_malformed_claim_type_becomes_ill_formed_instead_of_raising(cfg):
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
 
     assert proceed is False
-    assert s.current.status == "refuted"
+    assert s.current.status == "needs_experiment"
     assert s.current.blocker["reason"] == "ill_formed"
 
 

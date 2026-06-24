@@ -4,9 +4,8 @@ Handles:
 - definitional claims: coherence and non-circularity check.
 - mathematical/mechanistic claims: derivation sketch with gap detection.
 
-A prover 'pass' sets independent_sources=1 — the self-standing derivation counts as its
-own independent check, allowing purely mathematical or definitional claims (which the
-Grounder cannot externally support) to reach claim-status 'pass' on logic alone.
+A prover pass counts as an independent internal check only for definitional and
+mathematical claims. Mechanistic/empirical claims still need external grounding.
 """
 from __future__ import annotations
 
@@ -21,9 +20,10 @@ async def prove_claim(
 ) -> CheckRecord:
     """Check the derivation or well-formedness of a single atomic claim.
 
-    DERIVATION: complete + FATAL_GAP: no  → pass  (independent_sources=1)
-    FATAL_GAP: yes                        → fail  (independent_sources=0)
+    DERIVATION: complete + FATAL_GAP: no  → pass
+    FATAL_GAP: yes                        → uncertain with severe-gap basis
     DERIVATION: gapped, no fatal gap      → uncertain (independent_sources=0)
+    GAPS begins CONTRADICTION/COUNTEREXAMPLE → fail
     """
     user = PROVER.format(ctype=claim.type, statement=claim.statement)
     tail = await checked(
@@ -41,15 +41,17 @@ async def prove_claim(
     if derivation is None or fatal_gap is None:
         return CheckRecord(lens="prover", verdict="uncertain", basis=tail["gaps"], tick=tick)
 
+    gap_basis = tail["gaps"]
+    refutes = gap_basis.strip().upper().startswith(("CONTRADICTION:", "COUNTEREXAMPLE:"))
     fatal = fatal_gap == "yes"
     gapped = derivation == "gapped"
-    verdict = "fail" if fatal else ("uncertain" if gapped else "pass")
-    # A prover pass is a self-standing check; counts as one independent source.
-    indep = 1 if verdict == "pass" else 0
+    verdict = "fail" if refutes else ("uncertain" if fatal or gapped else "pass")
+    basis = f"FATAL_DERIVATION_GAP: {gap_basis}" if fatal and not refutes else gap_basis
+    indep = 1 if verdict == "pass" and claim.type in {"definitional", "mathematical"} else 0
     return CheckRecord(
         lens="prover",
         verdict=verdict,
-        basis=tail["gaps"],
+        basis=basis,
         independent_sources=indep,
         tick=tick,
     )
@@ -59,7 +61,14 @@ async def build_derivation(formal_claim: FormalClaim, claims: list[AtomicClaim],
     """Aggregate per-claim check results into a top-level Derivation record."""
     steps = [c.statement for c in claims]
     gaps = [
-        Gap(description=ck.basis, claim_id=c.id, fatal=(ck.verdict == "fail"))
+        Gap(
+            description=ck.basis,
+            claim_id=c.id,
+            fatal=(
+                ck.verdict == "fail"
+                or (ck.basis or "").strip().upper().startswith("FATAL_DERIVATION_GAP:")
+            ),
+        )
         for c in claims
         for ck in c.checks
         if ck.lens == "prover" and ck.verdict in ("fail", "uncertain") and ck.basis is not None

@@ -148,23 +148,23 @@ class IdeaArtifact(BaseModel):
         rs = self.root_ancestors()
         # ===== ENTRY GATES =====
         if self.formal_claim is None and self.finalized:
-            return REFUTED, self._b("unformalizable")
+            return NEEDS_EXPERIMENT, self._b("unformalizable")
         if self.formal_claim and not self.formal_claim.falsifiable:
-            return REFUTED, self._b("not_falsifiable")
+            return NEEDS_EXPERIMENT, self._b("not_falsifiable")
         if self.faithfulness and self.faithfulness.retried and self.faithfulness.verdict == "no":
-            return REFUTED, self._b("unfaithful_drift")
+            return NEEDS_EXPERIMENT, self._b("unfaithful_drift")
         if self.faithfulness and self.faithfulness.retried and self.faithfulness.verdict == "narrowed":
-            return REFUTED, self._b("unfaithful_narrowed")
+            return NEEDS_EXPERIMENT, self._b("unfaithful_narrowed")
         if (self.formal_claim and self.faithfulness and self.faithfulness.verdict == "yes"
                 and not self.claim_graph and self.finalized):
-            return REFUTED, self._b("ill_formed")
+            return NEEDS_EXPERIMENT, self._b("ill_formed")
         # ===== REFUTATION =====
         for c in rs:
             if c.status == "fail":
                 return REFUTED, self._b("failed", c.id)
         if self._landed("fatal"):
             a = next(a for a in self.attacks if a.status == "landed" and a.severity == "fatal")
-            return REFUTED, self._b("attacked", a.target_claim_id)
+            return NEEDS_EXPERIMENT, self._b("severe_objection", a.target_claim_id)
         # ===== NEEDS EXPERIMENT =====
         for c in rs:
             if c.status == "uncertain":

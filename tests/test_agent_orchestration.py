@@ -22,14 +22,14 @@ async def test_arbiter_agrees_with_computed(cfg):
 
 
 async def test_arbiter_disagreement_flagged_computed_wins(cfg):
-    # Arbiter narrates validated, but a fatal attack means computed == refuted
+    # Arbiter narrates validated, but a fatal attack means computed == needs_experiment.
     from valagents.artifact import Attack
     art = validated_art()
     art.attacks = [Attack(type="counterexample", severity="fatal", status="landed", target_claim_id="c1")]
     body = "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: x"
     out = await arbitrate(art, FakeLLM(lambda a, m: body), cfg)
-    assert art.status == "refuted" and out["agrees"] is False   # computed wins; mismatch surfaced
-    assert out["status"] == "refuted"
+    assert art.status == "needs_experiment" and out["agrees"] is False   # computed wins; mismatch surfaced
+    assert out["status"] == "needs_experiment"
 
 
 async def test_repair_returns_new_statements(cfg):
