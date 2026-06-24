@@ -93,20 +93,20 @@ async def run_claim_checks(store: ArtifactStore, backend, llm, cfg: Config, tick
             store.add_check(claim.id, rec)
             store.record({"event": "check", "claim": claim.id, "lens": name, "verdict": rec.verdict})
 
-        # Fan-out: load-bearing claim still uncertain after matrix lenses → run diverse-type
-        # extra lenses until fanout_N total checks have been recorded. Diverse means lens types
-        # NOT already in the coverage matrix for this claim type, so disagreement is detectable.
+        # fan-out: a load-bearing claim still `uncertain` gets DISTINCT diverse-type lenses
+        # (each at most once) until fanout_N lenses have run or no diverse type remains.
         if claim.load_bearing and claim.status == "uncertain":
-            extra = [n for n in ("grounder", "prover") if n not in lenses]
-            if not extra:
-                extra = ["grounder"]
-            i = 0
-            while len(claim.checks) < cfg.gate.fanout_N and i < len(extra) + 2:
-                name = extra[i % len(extra)]
-                rec = await _run_lens(name, claim, fc, backend, llm, cfg, tick)
-                tick += 1
+            run_types = set(lenses)
+            for name in ("grounder", "prover"):
+                if len(claim.checks) >= cfg.gate.fanout_N:
+                    break
+                if name in run_types:
+                    continue
+                rec = await _run_lens(name, claim, fc, backend, llm, cfg, tick); tick += 1
                 store.add_check(claim.id, rec)
                 store.record({"event": "fanout", "claim": claim.id, "lens": name, "verdict": rec.verdict})
-                i += 1
+                run_types.add(name)
+            if len(claim.checks) < cfg.gate.fanout_N:
+                store.record({"event": "fanout_limited", "claim": claim.id})
 
         claim.exhausted = True

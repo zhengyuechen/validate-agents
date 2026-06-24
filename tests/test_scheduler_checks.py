@@ -30,12 +30,20 @@ async def test_empirical_claim_grounded_and_exhausted(cfg):
 
 @pytest.mark.asyncio
 async def test_fanout_runs_more_lenses_on_uncertain_loadbearing(cfg):
-    # grounder returns uncertain → fan-out triggers a second diverse run; count lens calls
-    s = store_with([AtomicClaim(id="c1", statement="alpha not saturated", type="mechanistic")])
-    body = "CLAIM: c1 | SUPPORT: uncertain | INDEPENDENT_SOURCES: 0 | SOURCES: none | BASIS: unclear\n" \
-           "DERIVATION: gapped | GAPS: c1 | FATAL_GAP: no"
-    llm = FakeLLM(lambda a, m: body)
+    # empirical matrix = [grounder] only; grounder returns uncertain → fan-out adds the
+    # diverse prover lens to reach fanout_N=2.  FakeLLM routes by agent name.
+    s = store_with([AtomicClaim(id="c1", statement="alpha not saturated", type="empirical")])
+    grounder_body = "CLAIM: c1 | SUPPORT: uncertain | INDEPENDENT_SOURCES: 0 | SOURCES: none | BASIS: unclear"
+    prover_body = "DERIVATION: gapped | GAPS: c1 | FATAL_GAP: no"
+
+    def router(agent, messages):
+        if agent == "grounder":
+            return grounder_body
+        return prover_body
+
+    llm = FakeLLM(router)
     await run_claim_checks(s, None, llm, cfg)
     c = s.current.claim_graph[0]
     assert c.status == "uncertain"
-    assert len(c.checks) >= cfg.gate.fanout_N    # fan-out met before finalize
+    assert len(c.checks) >= cfg.gate.fanout_N          # fan-out met before finalize
+    assert any(ck.lens == "prover" for ck in c.checks) # diverse fan-out lens actually ran

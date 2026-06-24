@@ -120,3 +120,16 @@ async def test_prover_gapped_with_caveats_is_uncertain(cfg):
     rec = await prove_claim(AtomicClaim(id="d1", statement="x", type="mathematical"),
                             FC, FakeLLM(lambda a, m: body), cfg)
     assert rec.verdict == "uncertain"
+
+
+# ---------------------------------------------------------------------------
+# Cap-bypass regression guard — no-backend path must NOT trust LLM source count
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_grounder_no_backend_trusts_no_llm_count(cfg):
+    """Regression: backend=None → matched_independent=0 → min(3,0)=0 → verdict is 'uncertain',
+    NOT 'pass'. Catches anyone re-introducing a 'no backend → trust LLM count' bypass."""
+    body = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 3 | SOURCES: [A1] | BASIS: ok"
+    rec = await ground_claim(CM, FC, None, FakeLLM(lambda a, m: body), cfg)
+    assert rec.verdict == "uncertain"  # matched_independent=0 → min(3,0)=0 → not pass
