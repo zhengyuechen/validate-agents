@@ -123,6 +123,79 @@ def _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
         traj[step + 1] = y
     return traj
 
+def _extract_observable(traj, var_index, observable, np):
+    import math
+    name = observable.get("name"); var = observable.get("var")
+    wf = float(observable.get("window_frac", "1.0"))
+    if not (0.0 < wf <= 1.0):
+        raise ValueError(f"invalid window_frac: {wf}")
+    if var not in var_index:
+        raise ValueError(f"observable var not a state var: {var}")
+    series = traj[:, var_index[var]]
+    n = len(series)
+    w = max(1, int(np.ceil(wf * n)))
+    window = series[-w:]
+    if name in ("amplitude", "settle_std") and len(window) < 2:
+        raise ValueError(f"{name} needs >= 2 samples (window={len(window)})")
+    if name == "final_value":
+        val = float(series[-1])
+    elif name == "mean_window":
+        val = float(np.mean(window))
+    elif name == "amplitude":
+        val = float((np.max(window) - np.min(window)) / 2.0)
+    elif name == "settle_std":
+        val = float(np.std(window))
+    elif name == "max_value":
+        val = float(np.max(window))
+    elif name == "min_value":
+        val = float(np.min(window))
+    else:
+        raise ValueError(f"unknown observable: {name}")
+    if not math.isfinite(val):
+        raise ValueError(f"non-finite observable: {name}({var})")
+    return val
+
+def _eval_criterion(val, crit):
+    op = crit.get("op"); thr = crit.get("threshold")
+    if not isinstance(thr, list) or not thr:
+        raise ValueError(f"criterion threshold must be a non-empty list: {thr}")
+    if op == "in":
+        if len(thr) < 2:
+            raise ValueError("op 'in' needs [lo, hi]")
+        lo, hi = float(thr[0]), float(thr[1])
+        return lo <= val <= hi
+    t = float(thr[0])
+    if op == "ge":
+        return val >= t
+    if op == "le":
+        return val <= t
+    if op == "gt":
+        return val > t
+    if op == "lt":
+        return val < t
+    raise ValueError(f"unknown criterion op: {op}")
+
+def _build_grid(param_sweep, init_sweep, parse_num):
+    """Cartesian product of param_sweep x init_sweep axes. Each [lo, hi, n] -> n evenly spaced
+    values in [lo, hi] inclusive. Returns [(param_overrides, init_overrides), ...]."""
+    import itertools
+    axes = []   # (kind, name, [values])
+    for kind, sweep in (("param", param_sweep), ("init", init_sweep)):
+        for name, spec in sweep.items():
+            lo, hi, npts = parse_num(spec[0]), parse_num(spec[1]), int(float(spec[2]))
+            if npts < 1:
+                raise ValueError(f"sweep '{name}' needs n >= 1")
+            step = 0.0 if npts == 1 else (hi - lo) / (npts - 1)
+            values = [lo + step * i for i in range(npts)]
+            axes.append((kind, name, values))
+    grid = []
+    for combo in itertools.product(*[ax[2] for ax in axes]) if axes else [()]:
+        pov, iov = {}, {}
+        for (kind, name, _), value in zip(axes, combo):
+            (pov if kind == "param" else iov)[name] = value
+        grid.append((pov, iov))
+    return grid
+
 def _run_magnitude(plan: dict) -> dict:
     import sympy
     import numpy as np
