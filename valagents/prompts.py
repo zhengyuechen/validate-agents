@@ -321,6 +321,18 @@ REPAIR: <what changed> | TARGETS: <claim_ids> | RATIONALE: <...>
 Then ONE line per repaired sub-claim, exactly:
 CLAIM: <id> | STATEMENT: <revised statement text>"""
 
+COMPUTATION_DESIGNER = """You DESIGN a symbolic check; you do NOT run or judge it — code does that, and \
+you will never see the result. Given a known-limit-recovery claim, produce the structured plan to test \
+whether the idea's expression reduces to the established result in the stated regime.
+
+FORMAL CLAIM: {formal}
+LIMIT-RECOVERY CLAIM: {statement}
+
+Give the idea's expression and the variable taken to a limit; give the expected established result and \
+where it comes from. Use plain SymPy-parseable math (e.g. G*M/r**2, c, oo). Do not output code.
+End with exactly:
+EXPRESSION: <expr> | VARIABLES: <comma-separated symbols> | LIMIT_VARIABLE: <symbol> | LIMIT_POINT: <oo|0|value> | EXPECTED: <expr> | EXPECTED_SOURCE: <where the known result comes from> | CONFIRM_IF: <…> | REFUTE_IF: <…>"""
+
 ARBITER = COMMON_RUBRIC + """
 
 Role: cross-check the computed outcome and identify what matters most.

@@ -31,3 +31,15 @@ class ComputationVerdict(BaseModel):
     measured: str = ""
     plan: ComputationPlan
     result: ComputationResult
+
+
+def verdict_to_check(v: "ComputationVerdict", tick: int = 0):
+    """Map an executed ComputationVerdict to a CheckRecord(lens='executor'). No LLM (F3)."""
+    from valagents.artifact import CheckRecord, Source
+    indep = 1 if v.verdict == "pass" else 0
+    basis = (f"computed limit = {v.measured or '?'}; expected = {v.plan.expected} "
+             f"(source: {v.plan.expected_source or 'n/a'}); matched = {v.result.matched}")
+    sources = ([Source(locator=v.plan.expected_source, relation="independent")]
+               if v.plan.expected_source else [])
+    return CheckRecord(lens="executor", verdict=v.verdict, basis=basis,
+                       independent_sources=indep, sources=sources, tick=tick)

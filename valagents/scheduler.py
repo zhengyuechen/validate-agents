@@ -68,6 +68,7 @@ async def run_entry_gates(store: ArtifactStore, raw_idea: str, backend, llm, cfg
 from valagents.agents.grounder import ground_claim
 from valagents.agents.grounder import ground_novelty
 from valagents.agents.prover import prove_claim, build_derivation
+from valagents.agents.computation_designer import design_computation
 from valagents.agents.completer import complete_idea
 from valagents.agents.theory_bridge import build_theory_bridge
 from valagents.agents.positioning import position_prior_art
@@ -286,6 +287,19 @@ async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int)
             "limit": kl.limit,
             "verdict": rec.verdict,
         })
+
+        # F2: augment the reasoned Prover with an EXECUTED symbolic check (Spec 2)
+        plan = await design_computation(claim, art.formal_claim, llm, cfg)
+        if plan is not None:
+            from valagents.sandbox.executor import run_plan
+            from valagents.computation import verdict_to_check
+            adir = f"{cfg.results_dir}/computations/{claim_id}" if getattr(cfg, "results_dir", None) else None
+            verdict = run_plan(plan, cfg, artifacts_dir=adir)
+            store.add_check(claim_id, verdict_to_check(verdict, tick=tick))
+            store.record({"event": "limit_executed", "claim": claim_id,
+                          "verdict": verdict.verdict, "computed": verdict.measured})
+            tick += 1
+
         claim.exhausted = True
 
 
