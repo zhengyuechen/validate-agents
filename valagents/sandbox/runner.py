@@ -134,6 +134,54 @@ def _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
         traj[step + 1] = y
     return traj
 
+class _DomainError(ValueError):
+    """Raised when the RHS becomes undefined at a finite, in-bounds state (a NaN: e.g. log/sqrt of a negative).
+    A ValueError subclass, so every existing except-path still maps it to uncertain; the distinct type +
+    'domain_error' message let an inconclusive sweep label a well-posedness defect, not a missed divergence."""
+
+_DIVERGENCE_MAG = 1e100   # |state| past this is treated as a numerical divergence. Verdict-invariant (BP-1):
+                          # it only sets the t_of scale; t_of's converge/recede behaviour is the same for any
+                          # large threshold, so the bounded verdict does not depend on the exact value.
+
+def _rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs):
+    """Like _rk4_integrate but RETURNS (traj, overflow_step) instead of raising on a divergent state.
+    overflow_step = first step (1..n_steps) at which the state diverged (an infinity, or |state| > _DIVERGENCE_MAG),
+    or None if the whole trajectory stays finite and within _DIVERGENCE_MAG. On divergence, traj is the finite
+    prefix traj[0:overflow_step]. A non-finite INITIAL condition raises ValueError; a NaN mid-run (a domain error
+    such as log of a negative) raises _DomainError -> uncertain (a domain error is about DOMAIN, not magnitude,
+    so it can neither confirm nor refute a boundedness claim; BP-1). Deterministic, fixed-step (L3-D11 holds).
+    Used ONLY by the bounded honesty check; derivatives are evaluated with allow_nonfinite=True so a blow-up
+    yields inf (classified here as divergence) rather than a swallowed ValueError.
+    Known edge (errs safe): a blow-up that first manifests as inf-inf -> NaN INSIDE one RK4 stage, before that
+    step's magnitude check fires, is raised as a domain error (uncertain) rather than a divergence. It needs a
+    contrived RHS (two individually-overflowing terms subtracting) and errs toward uncertain, so it is acceptable."""
+    nvars = len(rhs_exprs)
+    y = np.array(y0, dtype=float)
+    if not np.all(np.isfinite(y)) or np.iscomplexobj(y):
+        raise ValueError("non-finite initial condition")
+    def deriv(yv):
+        env = dict(env_base)
+        for var, i in var_index.items():
+            env[var] = float(yv[i])
+        d = np.empty(nvars, dtype=float)
+        for k, (_, expr) in enumerate(rhs_exprs):
+            d[k] = _eval_expr(expr, env, np, npfuncs, allow_nonfinite=True)   # may be inf/nan; complex still raises
+        return d
+    traj = np.empty((n_steps + 1, nvars), dtype=float)
+    traj[0] = y
+    for step in range(n_steps):
+        k1 = deriv(y)
+        k2 = deriv(y + 0.5 * dt * k1)
+        k3 = deriv(y + 0.5 * dt * k2)
+        k4 = deriv(y + dt * k3)
+        y = y + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        if np.iscomplexobj(y) or np.any(np.isnan(y)):
+            raise _DomainError(f"domain_error: RHS undefined at a reachable finite state (step {step + 1})")
+        if np.any(np.isinf(y)) or np.max(np.abs(y)) > _DIVERGENCE_MAG:
+            return traj[:step + 1], step + 1                                   # divergence captured
+        traj[step + 1] = y
+    return traj, None
+
 def _extract_observable(traj, var_index, observable, np):
     import math
     name = observable.get("name"); var = observable.get("var")
