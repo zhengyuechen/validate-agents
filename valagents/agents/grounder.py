@@ -69,8 +69,16 @@ async def ground_claim(
         else:
             srcs.append(Source(locator=token, relation="independent"))
 
-    matched_independent = sum(1 for s in srcs if s.relation == "independent" and s.url)
-    independent_sources = min(as_int(tail["independent_sources"]), matched_independent)
+    # D8 downgrade: cap independent_sources to the number of sources with real URLs only when
+    # real articles were retrieved (i.e. the backend returned results). In parametric mode
+    # (no backend or empty result set), trust the LLM's stated count — there are no retrieved
+    # articles to match against, so the url-match cap is meaningless.
+    llm_independent = as_int(tail["independent_sources"])
+    if articles:
+        matched_independent = sum(1 for s in srcs if s.relation == "independent" and s.url)
+        independent_sources = min(llm_independent, matched_independent)
+    else:
+        independent_sources = llm_independent
     verdict = map_support_to_verdict(tail["support"], independent_sources)
 
     return CheckRecord(
