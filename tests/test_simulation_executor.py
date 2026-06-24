@@ -131,3 +131,19 @@ def test_robust_frac_zero_uncertain():
     # robust_frac=0 would be an unconditional rubber-stamp -> rejected as out of (0,1] -> uncertain
     v = run_plan(splan(robust_frac="0"), cfg())
     assert v.verdict == "uncertain" and not v.result.ok
+
+def test_name_collision_state_var_and_param_uncertain():
+    # a name that is both a state var and a parameter is silently shadowed -> reject fail-closed
+    v = run_plan(splan(state_vars=["a"], rhs={"a": "-a*a"}, init={"a": "1.0"},
+                       observable={"name": "final_value", "var": "a", "window_frac": "0.1"}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_param_in_both_params_and_param_sweep_is_ok():
+    # the LEGIT pattern (fixed default + swept range for the same param) must NOT be flagged
+    v = run_plan(splan(), cfg())   # splan has params={"a":"1.0"}, param_sweep={"a":[...]}
+    assert v.verdict in ("pass", "fail")   # runs (not uncertain from a false collision)
+
+def test_projected_grid_cap_before_materializing_uncertain():
+    # a sweep whose projected product exceeds max_grid_points -> uncertain (without building the huge list)
+    v = run_plan(splan(param_sweep={"a": ["0.8", "1.2", "100000"]}, max_grid_points=50), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok

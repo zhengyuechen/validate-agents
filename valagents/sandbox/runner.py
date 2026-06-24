@@ -175,9 +175,10 @@ def _eval_criterion(val, crit):
         return val < t
     raise ValueError(f"unknown criterion op: {op}")
 
-def _build_grid(param_sweep, init_sweep, parse_num):
+def _build_grid(param_sweep, init_sweep, parse_num, max_grid_points=None):
     """Cartesian product of param_sweep x init_sweep axes. Each [lo, hi, n] -> n evenly spaced
-    values in [lo, hi] inclusive. Returns [(param_overrides, init_overrides), ...]."""
+    values in [lo, hi] inclusive. Returns [(param_overrides, init_overrides), ...]. If max_grid_points
+    is given, rejects (raises) when the PROJECTED product exceeds it, before materializing the list."""
     import itertools
     axes = []   # (kind, name, [values])
     for kind, sweep in (("param", param_sweep), ("init", init_sweep)):
@@ -188,6 +189,12 @@ def _build_grid(param_sweep, init_sweep, parse_num):
             step = 0.0 if npts == 1 else (hi - lo) / (npts - 1)
             values = [lo + step * i for i in range(npts)]
             axes.append((kind, name, values))
+    if max_grid_points is not None:                              # projected-product cap BEFORE materializing
+        projected = 1
+        for ax in axes:
+            projected *= len(ax[2])
+        if projected > int(max_grid_points):
+            raise ValueError(f"projected grid {projected} exceeds max_grid_points {max_grid_points}")
     grid = []
     for combo in itertools.product(*[ax[2] for ax in axes]) if axes else [()]:
         pov, iov = {}, {}
@@ -287,6 +294,10 @@ def _run_simulation(plan: dict) -> dict:
         reserved = set(allowed) & set(_ALLOWED)
         if reserved:
             return _u(f"declared symbol(s) shadow reserved math names: {sorted(reserved)}")
+        param_names_set = set(plan.get("params", {})) | set(plan.get("param_sweep", {}))
+        collisions = set(state_vars) & param_names_set          # a name can't be BOTH a state var and a parameter
+        if collisions:
+            return _u(f"name(s) used as both state var and parameter: {sorted(collisions)}")
         null_overrides = plan.get("null_overrides", {})
         declared_params = set(plan.get("params", {})) | set(plan.get("param_sweep", {}))
         bad_null = set(null_overrides) - declared_params
@@ -310,7 +321,8 @@ def _run_simulation(plan: dict) -> dict:
             rhs_exprs.append((var, expr))
         var_index = {v: i for i, v in enumerate(state_vars)}
         # grid + caps
-        grid = _build_grid(plan.get("param_sweep", {}), plan.get("init_sweep", {}), parse_num)
+        grid = _build_grid(plan.get("param_sweep", {}), plan.get("init_sweep", {}), parse_num,
+                           max_grid_points=min(int(plan["max_grid_points"]), int(ceil["max_grid_points"])))
         gsize = len(grid)
         if gsize > int(plan["max_grid_points"]):
             return _u("grid exceeds max_grid_points")

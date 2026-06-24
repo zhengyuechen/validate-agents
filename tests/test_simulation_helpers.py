@@ -49,3 +49,14 @@ def test_build_grid_product_and_axes():
     assert set(pov) == {"a"} and set(iov) == {"x"}     # axes split correctly
     avals = sorted({p["a"] for p, _ in grid})
     assert avals == [0.0, 0.5, 1.0]                    # linspace(0,1,3)
+
+def test_build_grid_projected_cap_raises():
+    import pytest
+    pn = lambda s: float(s)
+    with pytest.raises(Exception):
+        runner._build_grid({"a": ["0", "1", "1000"]}, {"b": ["0", "1", "1000"]}, pn, max_grid_points=100)
+
+def test_build_grid_within_cap_ok():
+    pn = lambda s: float(s)
+    grid = runner._build_grid({"a": ["0", "1", "3"]}, {}, pn, max_grid_points=100)
+    assert len(grid) == 3   # under the cap, builds normally
