@@ -42,9 +42,8 @@ async def red_team(art: IdeaArtifact, llm, cfg, tick: int = 0):
         a = Attack(type=r["attack"].strip().lower(), severity=severity,
                    status=status, target_claim_id=tgt, basis=r["basis"])
         attacks.append(a)
-        if a.status == "landed" and tgt:
-            verdict = "fail" if severity in {"fatal", "major"} else "uncertain"
-            per_claim.append((tgt, CheckRecord(lens="redteam", verdict=verdict,
+        if a.status == "landed" and a.severity == "fatal" and tgt:
+            per_claim.append((tgt, CheckRecord(lens="redteam", verdict="fail",
                                                basis=a.basis, independent_sources=1, tick=tick)))
 
     surface = AttackSurface(attempted=attempted, skipped=[c for c in _CATS if c not in attempted])

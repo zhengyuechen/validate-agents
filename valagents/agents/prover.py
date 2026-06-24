@@ -13,7 +13,7 @@ from __future__ import annotations
 from valagents.artifact import CheckRecord, Derivation, Gap, AtomicClaim, FormalClaim
 from valagents.parse import checked
 from valagents.prompts import PROVER
-from valagents.agents.base import build_messages
+from valagents.agents.base import build_messages, choice
 
 
 async def prove_claim(
@@ -35,8 +35,14 @@ async def prove_claim(
     if tail is None:
         return CheckRecord(lens="prover", verdict="uncertain", basis="(unparseable)", tick=tick)
 
-    fatal = tail["fatal_gap"].strip().lower().startswith("y")
-    gapped = tail["derivation"].strip().lower().startswith("gapped")
+    derivation_raw = tail["derivation"].strip().lower()
+    derivation = "gapped" if derivation_raw.startswith("gapped") else choice(derivation_raw, {"complete"})
+    fatal_gap = choice(tail["fatal_gap"], {"yes", "no"})
+    if derivation is None or fatal_gap is None:
+        return CheckRecord(lens="prover", verdict="uncertain", basis=tail["gaps"], tick=tick)
+
+    fatal = fatal_gap == "yes"
+    gapped = derivation == "gapped"
     verdict = "fail" if fatal else ("uncertain" if gapped else "pass")
     # A prover pass is a self-standing check; counts as one independent source.
     indep = 1 if verdict == "pass" else 0

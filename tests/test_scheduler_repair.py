@@ -100,3 +100,32 @@ async def test_repair_updates_target_claim_and_can_recover(cfg):
     assert art.status == "internally_validated"
     assert art.repairs_spent == 1
     assert art.claim_graph[0].statement == "revised effect exists"
+
+
+@pytest.mark.asyncio
+async def test_major_attack_stays_needs_experiment(cfg):
+    script = dict(BASE)
+    script["redteam"] = (
+        "ATTEMPTED: counterexample, magnitude\n"
+        "ATTACK: magnitude | SEVERITY: major | STATUS: landed | TARGET: c1 | BASIS: open issue"
+    )
+    script["repairer"] = "REPAIR: no safe repair | TARGETS: c1 | RATIONALE: still open"
+    script["arbiter"] = "STATUS: needs_experiment | LOAD_BEARING: c1 | DECISIVE_TEST: t"
+
+    art = await run("seed", scripted(script), cfg, backend=FakeBackend())
+
+    assert art.status == "needs_experiment"
+    assert art.blocker["reason"] == "open_objection"
+
+
+@pytest.mark.asyncio
+async def test_minor_landed_attack_does_not_block_validation(cfg):
+    script = dict(BASE)
+    script["redteam"] = (
+        "ATTEMPTED: counterexample, magnitude\n"
+        "ATTACK: magnitude | SEVERITY: minor | STATUS: landed | TARGET: c1 | BASIS: small caveat"
+    )
+
+    art = await run("seed", scripted(script), cfg, backend=FakeBackend())
+
+    assert art.status == "internally_validated"

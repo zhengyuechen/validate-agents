@@ -13,6 +13,11 @@ def as_int(s: str, default: int = 0) -> int:
     return int(m.group()) if m else default
 
 
+def choice(value: str, allowed: set[str]) -> str | None:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in allowed else None
+
+
 def map_support_to_verdict(support: str, independent_sources: int) -> str:
     support = (support or "").strip().lower()
     if support == "supported":

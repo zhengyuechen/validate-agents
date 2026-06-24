@@ -2,7 +2,7 @@ from __future__ import annotations
 from valagents.artifact import Coverage, FormalClaim, AtomicClaim
 from valagents.parse import checked
 from valagents.prompts import ENTAILMENT
-from valagents.agents.base import build_messages
+from valagents.agents.base import build_messages, choice
 
 
 async def entailment_check(formal_claim: FormalClaim, claims: list[AtomicClaim], llm, cfg) -> Coverage | None:
@@ -18,4 +18,7 @@ async def entailment_check(formal_claim: FormalClaim, claims: list[AtomicClaim],
     if tail is None:
         return Coverage(verdict="gap", missing="(unparseable entailment check)")  # fail closed
     missing = None if tail["missing"].strip().lower() in ("none", "") else tail["missing"]
-    return Coverage(verdict=tail["covers"].strip().lower(), missing=missing)
+    verdict = choice(tail["covers"], {"complete", "gap"})
+    if verdict is None:
+        return Coverage(verdict="gap", missing=missing or "(invalid entailment verdict)")
+    return Coverage(verdict=verdict, missing=missing)

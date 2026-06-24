@@ -67,3 +67,50 @@ async def test_clean_entry_proceeds(cfg):
         "entailment": "COVERS: complete | MISSING: none"}))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
     assert proceed is True and len(s.current.claim_graph) == 1 and s.current.coverage.verdict == "complete"
+
+
+@pytest.mark.asyncio
+async def test_malformed_faithfulness_label_refutes_instead_of_raising(cfg):
+    s = store()
+    llm = FakeLLM(router({
+        "formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: yes",
+        "faithfulness": "FAITHFUL: maybe | BACK_TRANSLATION: ambiguous",
+    }))
+
+    proceed = await run_entry_gates(s, "seed", None, llm, cfg)
+
+    assert proceed is False
+    assert s.current.status == "refuted"
+    assert s.current.blocker["reason"] == "unfaithful_drift"
+
+
+@pytest.mark.asyncio
+async def test_malformed_claim_type_becomes_ill_formed_instead_of_raising(cfg):
+    s = store()
+    llm = FakeLLM(router({
+        "formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: yes",
+        "faithfulness": "FAITHFUL: yes | BACK_TRANSLATION: same",
+        "decomposer": "CLAIM: A | TYPE: math | DEPENDS_ON: none | STATEMENT: s",
+    }))
+
+    proceed = await run_entry_gates(s, "seed", None, llm, cfg)
+
+    assert proceed is False
+    assert s.current.status == "refuted"
+    assert s.current.blocker["reason"] == "ill_formed"
+
+
+@pytest.mark.asyncio
+async def test_malformed_entailment_label_becomes_gap_instead_of_raising(cfg):
+    s = store()
+    llm = FakeLLM(router({
+        "formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: yes",
+        "faithfulness": "FAITHFUL: yes | BACK_TRANSLATION: same",
+        "decomposer": "CLAIM: A | TYPE: empirical | DEPENDS_ON: none | STATEMENT: s",
+        "entailment": "COVERS: maybe | MISSING: unclear",
+    }))
+
+    proceed = await run_entry_gates(s, "seed", None, llm, cfg)
+
+    assert proceed is True
+    assert s.current.coverage.verdict == "gap"

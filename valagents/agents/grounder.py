@@ -6,7 +6,7 @@ import re
 from valagents.artifact import CheckRecord, Source, Novelty, AtomicClaim, FormalClaim
 from valagents.parse import checked
 from valagents.prompts import GROUNDER_CLAIM, GROUNDER_NOVELTY
-from valagents.agents.base import build_messages, map_support_to_verdict, as_int
+from valagents.agents.base import build_messages, map_support_to_verdict, as_int, choice
 from valagents.web_search import search_articles
 
 
@@ -102,8 +102,11 @@ async def ground_novelty(formal_claim: FormalClaim, backend, llm, cfg) -> Novelt
     )
     if tail is None:
         return None
+    position = choice(tail["position"], {"new", "special_case", "restatement"})
+    if position is None:
+        return None
     return Novelty(
         closest_prior=[tail["closest_prior"]],
         delta=tail["delta"],
-        position=tail["position"].strip().lower(),
+        position=position,
     )

@@ -25,7 +25,7 @@ async def test_red_team_records_surface_and_landed(cfg):
     attacks, surface, per_claim = await red_team(art, FakeLLM(lambda a, m: body), cfg)
     assert "magnitude" in surface.attempted
     assert any(a.status == "landed" and a.severity == "major" for a in attacks)
-    assert per_claim and per_claim[0][0] == "c1" and per_claim[0][1].verdict == "fail"
+    assert per_claim == []  # major is an open objection, not a per-claim refutation
 
 
 @pytest.mark.asyncio
@@ -49,7 +49,7 @@ async def test_red_team_reask_path_parses_attacks(cfg):
     attacks, surface, per_claim = await red_team(art, FakeLLM(lambda a, m: next(bodies)), cfg)
     assert len(attacks) == 2
     assert any(a.status == "landed" and a.severity == "major" for a in attacks)
-    assert per_claim and per_claim[0][0] == "c1"
+    assert per_claim == []
 
 
 @pytest.mark.asyncio
