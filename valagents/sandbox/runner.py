@@ -182,6 +182,27 @@ def _rk4_integrate_capturing(rhs_exprs, var_index, env_base, y0, n_steps, dt, np
         traj[step + 1] = y
     return traj, None
 
+def _converged_monotone(seq, rtol):
+    """§3a — convergence is monotone AND shrinking, not one lucky pair. seq = refining quantities
+    [q0(base), q1(dt/2), q2(dt/4), ...]. True iff: >=3 samples (>=2 refinements); the consecutive deltas are
+    all same-sign-or-zero (monotone, no reversal); |delta| is non-increasing (shrinking); and the last relative
+    delta < rtol. A single coincidentally-close pair on an otherwise-receding sequence fails the shrinking test."""
+    if len(seq) < 3:
+        return False
+    deltas = [seq[i + 1] - seq[i] for i in range(len(seq) - 1)]
+    signs = [(d > 0) - (d < 0) for d in deltas]               # +1 / 0 / -1
+    nonzero = [s for s in signs if s != 0]
+    if len(set(nonzero)) > 1:                                 # a direction reversal -> not monotone
+        return False
+    mags = [abs(d) for d in deltas]
+    for a, b in zip(mags, mags[1:]):
+        if b > a:                                            # a delta grew -> not shrinking
+            return False
+    last = seq[-1]
+    if last == 0:
+        return False
+    return mags[-1] / abs(last) < rtol
+
 def _extract_observable(traj, var_index, observable, np):
     import math
     name = observable.get("name"); var = observable.get("var")

@@ -29,6 +29,31 @@ def test_observable_window_too_small_raises():
     with pytest.raises(Exception):     # window_frac so small the window has < 2 samples
         runner._extract_observable(traj, vi, {"name": "amplitude", "var": "y", "window_frac": "0.001"}, np)
 
+def test_converged_monotone_true():
+    from valagents.sandbox.runner import _converged_monotone
+    # t_of converging to ~1.0: deltas -0.1, -0.01 (same sign, shrinking, last rel delta 0.01/0.99<0.1)
+    assert _converged_monotone([1.11, 1.01, 1.0], 0.1) is True
+
+def test_converged_monotone_single_lucky_pair_rejected():
+    from valagents.sandbox.runner import _converged_monotone
+    # overall receding (increasing) with one coincidentally-close pair (5.0,5.1): deltas 4.0, 0.1, 3.9
+    # -> NOT shrinking (|0.1| then |3.9| grows) -> reject (a pure 2-value rtol gate would be fooled)
+    assert _converged_monotone([1.0, 5.0, 5.1, 9.0], 0.1) is False
+
+def test_converged_monotone_receding_rejected():
+    from valagents.sandbox.runner import _converged_monotone
+    # steadily receding, deltas grow -> not shrinking -> reject
+    assert _converged_monotone([1.0, 2.0, 4.0, 8.0], 0.1) is False
+
+def test_converged_monotone_too_few_samples():
+    from valagents.sandbox.runner import _converged_monotone
+    assert _converged_monotone([1.0, 1.0], 0.1) is False     # <3 samples (need >=2 refinements)
+
+def test_converged_monotone_last_delta_too_large():
+    from valagents.sandbox.runner import _converged_monotone
+    # monotone + shrinking but last relative delta 0.5/1.5 = 0.33 > 0.1 -> not yet converged
+    assert _converged_monotone([3.0, 2.0, 1.5], 0.1) is False
+
 def test_observable_unknown_var_raises():
     traj, vi = _traj()
     with pytest.raises(Exception):
