@@ -36,6 +36,7 @@ class ComputationPlan(BaseModel):
     param_sweep: dict[str, list[str]] = {}
     init_sweep: dict[str, list[str]] = {}
     null_overrides: dict[str, str] = {}   # negative-control: param -> off-value; non-empty -> discrimination mode
+    fixed_point: dict[str, str] = {}   # linear_stability: state var -> equilibrium expression over the params (LS-D1)
     t_span: list[str] = []
     dt: str = ""
     observable: dict = {}
@@ -119,13 +120,19 @@ def verdict_to_sim_attack(v: "ComputationVerdict", target_claim_id, fatal_eligib
         status, severity = "survived", "minor"
     else:  # "refute" — the mechanism failed its own preregistered toy demonstration
         status, severity = "landed", ("fatal" if fatal_eligible else "major")
-    obs = v.plan.observable or {}
     crit = v.plan.sim_criterion or {}
     thr_raw = crit.get("threshold", [])
     thr = " ".join(str(x) for x in thr_raw) if thr_raw else "?"
-    basis = (f"simulation/{v.plan.primitive}: {v.measured or '?'}; "
-             f"observable = {obs.get('name', '?')}({obs.get('var', '?')}); "
-             f"criterion = {crit.get('op', '?')} {thr}; "
-             f"robust_frac = {v.plan.robust_frac or 'n/a'}")
+    if v.plan.primitive == "linear_stability":
+        basis = (f"simulation/linear_stability: {v.measured or '?'}; "
+                 f"fixed_point = {v.plan.fixed_point}; "
+                 f"criterion = {crit.get('op', '?')} {thr} (on spectral abscissa alpha); "
+                 f"robust_frac = {v.plan.robust_frac or 'n/a'}")
+    else:
+        obs = v.plan.observable or {}
+        basis = (f"simulation/{v.plan.primitive}: {v.measured or '?'}; "
+                 f"observable = {obs.get('name', '?')}({obs.get('var', '?')}); "
+                 f"criterion = {crit.get('op', '?')} {thr}; "
+                 f"robust_frac = {v.plan.robust_frac or 'n/a'}")
     return Attack(type="simulation", severity=severity, status=status,
                   target_claim_id=target_claim_id, basis=basis)

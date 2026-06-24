@@ -41,3 +41,22 @@ def test_refute_not_eligible_is_landed_major():
 
 def test_verdict_to_sim_attack_takes_no_llm():
     assert "llm" not in inspect.signature(verdict_to_sim_attack).parameters
+
+from valagents.config import SimCfg
+
+def test_fixed_point_field_and_simcfg_knobs():
+    p = ComputationPlan(kind="simulation", primitive="linear_stability", fixed_point={"x": "sqrt(a/b)"})
+    assert p.fixed_point == {"x": "sqrt(a/b)"}
+    c = SimCfg()
+    assert c.fixed_point_tol == 1e-6 and c.min_points_per_axis == 5
+
+def test_sim_attack_basis_linear_stability_branch():
+    p = ComputationPlan(kind="simulation", primitive="linear_stability",
+                        fixed_point={"x": "0"}, sim_criterion={"op": "lt", "threshold": ["0"]}, robust_frac="1")
+    r = ComputationResult(ok=True, computed="linear_stability: 5/5 points satisfy criterion; alpha in [-0.5, -0.2]",
+                          matched="confirm")
+    v = ComputationVerdict(verdict="pass", measured=r.computed, plan=p, result=r)
+    a = verdict_to_sim_attack(v, target_claim_id="m1", fatal_eligible=True)
+    assert a.type == "simulation" and a.status == "survived"
+    assert "linear_stability" in a.basis and "alpha" in a.basis
+    assert "fixed_point" in a.basis and "?(?)" not in a.basis    # NOT the ode observable rendering

@@ -26,6 +26,8 @@ class SimCfg(BaseModel):
     max_steps: int = 200_000
     max_total_steps: int = 2_000_000
     min_grid_points: int = 4
+    fixed_point_tol: float = 1e-6      # linear_stability equilibrium residual tolerance (absolute, LS-D8)
+    min_points_per_axis: int = 5       # linear_stability per-swept-axis density floor (LS-D8)
 
 class Config(BaseModel):
     default_model: str
