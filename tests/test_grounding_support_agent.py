@@ -117,16 +117,15 @@ async def test_dedup_preprint_and_published_count_once():
 
 
 async def test_thin_corpus_formula_leak_uncertain():
-    # §10 day-one probe: the model SMUGGLES the subject formula into the property
-    # ('YbZn2GaO5 temperature-independent') and labels a formula-only synthesis sentence "supports".
-    # On a thin corpus the formula is in only 1 of 3 abstracts (saturation misses it). The agent ALWAYS
-    # forms the union (saturated ∪ subject_phrase), which subtracts the formula → off-property → uncertain.
+    # §10 day-one probe (T2-D12): a formula-only synthesis sentence labeled "supports". The distinctive set
+    # is CLAIM-derived (claim − saturated); on this thin corpus nothing saturates, so distinctive is the full
+    # claim property {noise, psd, ybzn2gao5, temperature, independent}, and the synthesis quote (which names
+    # only the formula) fails require-ALL → uncertain. The model emits no property/subject, so it has no lever.
     thin = [A_SYNTH,
             Article(title="x", summary="unrelated spin liquid candidate magnetization", url="http://arxiv.org/abs/2501.01001v1", published="2025"),
             Article(title="y", summary="another frustrated magnet heat capacity", url="http://arxiv.org/abs/2501.01002v1", published="2025")]
     tail = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | BASIS: claimed"
-    payload = {"asserted_property": "YbZn2GaO5 temperature-independent", "subject_phrase": "YbZn2GaO5 noise PSD",
-               "citations": [{"label": "A1", "direction": "supports",
+    payload = {"citations": [{"label": "A1", "direction": "supports",
                               "quote": "Single crystals of YbZn2GaO5 were grown by the floating-zone method in this study."}]}
     rec = await ground_claim(CLAIM, FC, _Backend(thin), _llm(tail, payload), _cfg())
     assert rec.verdict == "uncertain" and rec.independent_sources == 0
