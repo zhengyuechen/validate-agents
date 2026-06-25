@@ -32,6 +32,11 @@ def test_render_nonarxiv_space_join_no_operators():
     assert render_query(p, None) == "hole Hall coefficient"                                 # backend_label(None)=="none"
 
 
+def test_render_empty_terms_returns_empty_not_malformed():
+    # render is caller-guaranteed non-empty terms; if ever called empty it returns "" not "(...) AND ()"
+    assert render_query(PlannedQuery(archives=["cond-mat"], terms=[]), ArxivBackend()) == ""
+
+
 def test_valid_archives_complete():
     for a in ("cond-mat", "quant-ph", "eess", "nlin", "q-bio", "q-fin", "stat", "econ"):
         assert a in VALID_ARCHIVES

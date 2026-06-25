@@ -36,7 +36,10 @@ def _norm_term(t: str) -> str:
 
 
 def render_query(planned: PlannedQuery, backend, widen: bool = False) -> str:
-    """Render the backend-specific search string. Called only with non-empty planned.terms."""
+    """Render the backend-specific search string. The ladder only calls this with non-empty terms;
+    guard the precondition so a future direct caller gets "" rather than a malformed 'AND ()' clause."""
+    if not planned.terms:
+        return ""
     if backend_label(backend) != "arxiv":
         # non-arXiv (e.g. Tavily): focused terms as a natural query — no cat:/Lucene operators.
         return " ".join(t.strip().strip('"').strip() for t in planned.terms)
