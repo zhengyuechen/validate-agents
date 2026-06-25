@@ -51,13 +51,13 @@ ground_claim(claim) ─▶ plan_query(claim.statement, llm, cfg) ─▶ PlannedQ
 
 **New unit — `valagents/agents/query_planner.py`** (one focused module):
 
-- `async def plan_query(text: str, llm, cfg) -> PlannedQuery` — one LLM call. Emits a KEY: value tail (same parsing idiom as the grounder, via `checked`): `ARCHIVES: cond-mat, quant-ph | TERMS: hole, "Hall coefficient", superconductor`. Code splits on commas, **validates each archive against `VALID_ARCHIVES`** (drops hallucinated/unknown ones), keeps 2–4 terms. Returns `PlannedQuery(archives=[valid only], terms=[...])`. On LLM failure / unparseable tail → `PlannedQuery(archives=[], terms=[])`.
+- `async def plan_query(text: str, llm, cfg, context: str = "") -> PlannedQuery` — one LLM call. `text` is the claim being grounded; `context` is the broader formal claim it was decomposed from (empty for novelty). **The prompt uses `context` for ARCHIVE inference and `text` for TERM extraction** — so the archive is robust on a terse sub-claim ("the effective moment is 1.2 µB") that alone signals no domain, while the terms stay distinctive to the *sub*-claim rather than the whole idea. Emits a KEY: value tail (same parsing idiom as the grounder, via `checked`): `ARCHIVES: cond-mat, quant-ph | TERMS: hole, "Hall coefficient", superconductor`. Code splits on commas, **validates each archive against `VALID_ARCHIVES`** (drops hallucinated/unknown ones), keeps 2–4 terms. Returns `PlannedQuery(archives=[valid only], terms=[...])`. On LLM failure / unparseable tail → `PlannedQuery(archives=[], terms=[])`.
 - `VALID_ARCHIVES: frozenset[str]` — the arXiv top-level archive set (see §6). Anti-hallucination allow-list.
 - `def render_query(planned, backend, widen: bool = False) -> str` — pure, backend-aware (see §5). Returns the search string handed to `search_articles`.
 
 **`PlannedQuery`** — a small frozen dataclass `{archives: list[str], terms: list[str]}`. No Pydantic/artifact coupling; it never enters `IdeaArtifact`.
 
-**Wiring** — `ground_claim` and `ground_novelty` both call the planner before `search_articles` (same bug, same fix, reuse). Backed by the 3-rung ladder in §4.
+**Wiring** — `ground_claim` and `ground_novelty` both call the planner before `search_articles` (same bug, same fix, reuse). `ground_claim` passes `context=formal_claim.statement` (it has both the atomic claim and the formal claim in scope); `ground_novelty` passes only its formal-claim statement (no extra context). Backed by the 3-rung ladder in §4.
 
 ---
 
@@ -66,7 +66,7 @@ ground_claim(claim) ─▶ plan_query(claim.statement, llm, cfg) ─▶ PlannedQ
 The two render levers are **scope** (the `cat:` filter — what fixes the bug) and **terms** (the AND/OR precision). The rule: **widen the keywords, never the scope.** Scope is sacred (relaxing it re-admits hep-ex/gr-qc); term precision is the safe thing to loosen.
 
 ```python
-planned = await plan_query(text, llm, cfg)        # archives already validated; may be empty
+planned = await plan_query(text, llm, cfg, context=formal_claim.statement)  # archives validated; may be empty
 arxiv = backend_label(backend) == "arxiv"         # reuse the existing helper in web_search.py
 
 if planned.terms and planned.archives and arxiv:
@@ -114,7 +114,7 @@ else:
   Both wildcard forms are contamination-free (every primary category `cond-mat.*`) and overlap 9/10 in the top 10; the **no-dot form is strictly broader** (superset, includes pre-subcategory-era papers). **The `*` is mandatory** — `cat:cond-mat` without it returns 4 papers, not 187. Chosen form: **`cat:<archive>*`**.
 
 - **1–2 archives, OR'd:** `(cat:a1* OR cat:a2*)`. Hedges the archive guess without dropping to the unreliable leaf level. OR syntax confirmed valid against the API. Cap at 2 (YAGNI; more dilutes the scope).
-- **Phrase-quote multiword terms:** a term containing a space is wrapped in `"…"` (`Hall coefficient` → `"Hall coefficient"`), else it tokenizes as `Hall AND coefficient`. Single-word terms unquoted.
+- **Phrase-quote multiword terms (normalized):** each term is first stripped of surrounding whitespace and any quotes the LLM already added (`'"Hall coefficient"'` → `Hall coefficient`), then a term containing a space is wrapped in `"…"` (→ `"Hall coefficient"`), else left bare. This is idempotent — a pre-quoted term never becomes `""Hall coefficient""`. Single-word terms unquoted (else `Hall coefficient` would tokenize as `Hall AND coefficient`).
 - **`widen=True`:** join terms with `OR` instead of `AND`; the `cat:` clause is **unchanged**.
 
 **Non-arXiv backend (Tavily/other):** `cat:` is arXiv-only syntax. Render = the focused terms space-joined as a natural query (e.g. `hole Hall coefficient superconductor`) — still a large improvement over the full sentence. `widen` is a no-op for non-arXiv (Tavily relevance, not Lucene AND/OR). This is the same terms-only branch RUNG 2 uses.
@@ -178,10 +178,12 @@ When `query_planner` is False, the grounder uses the current behavior (raw `clai
 - parses `ARCHIVES: … | TERMS: …` tail into `PlannedQuery`; keeps 2–4 terms.
 - drops a hallucinated archive (`ARCHIVES: cond-mat, frobnicate` → `["cond-mat"]`).
 - truncates a leaf to archive (`cond-mat.supr-con` → `cond-mat`) before validating.
+- `context` is forwarded into the prompt (assert the FakeLLM saw the formal-claim text), so archive inference is available on a terse `text`.
 - unparseable / empty tail → `PlannedQuery([], [])`.
 
 **`render_query` (pure):**
 - arXiv scoped: `(cat:cond-mat* OR cat:quant-ph*) AND (hole AND "Hall coefficient")` — wildcard present, multiword phrase-quoted, single-word unquoted.
+- **pre-quoted term is normalized:** input term `'"Hall coefficient"'` renders as `"Hall coefficient"`, never `""Hall coefficient""` (idempotent).
 - `widen=True` → terms OR'd, `cat:` clause byte-identical to non-widened.
 - no archives → terms-only, no `cat:`.
 - non-arXiv backend → space-joined terms, no `cat:`, widen is no-op.
@@ -220,9 +222,12 @@ In scope: one planner module, the 3-rung ladder, one widen step, the two config 
 - **QP-D8 — default-ON.** Pure-win, fail-soft, only cost is one LLM call — unlike NLI (behavior swap, default-OFF). (User confirmation.)
 - **QP-D9 — backend-aware render.** `cat:` for arXiv; terms-only space-join for Tavily/other (the RUNG-2 branch). `cat:` is arXiv-only syntax.
 - **QP-D10 — firewall preserved.** Model proposes a query; code validates/renders/retrieves/adjudicates. `artifact.py` and the gate untouched; zero gate risk.
+- **QP-D11 — `plan_query` takes the formal claim as context for archive inference.** A terse decomposed sub-claim alone may not signal its archive; the broader formal claim does. Context drives ARCHIVE inference, `text` drives TERM extraction (terms stay sub-claim-distinctive). Fail-soft (terms-only) covers a miss, so low-risk but it strengthens the reliable-at-archive premise the whole design rests on. (User refinement.)
+- **QP-D12 — renderer normalizes pre-quoted terms.** Strip surrounding quotes before re-quoting so an already-quoted LLM term can't become `""…""`. Idempotent. (User refinement.)
 
 ---
 
-## 13. Open questions
+## 13. Open questions & watch-items
 
-None blocking. One acknowledged tradeoff (QP-D6 / §4): the AND default + frequent widen means many claims cost 2 arXiv calls; accepted, mitigated by 2–4 terms, revisit only if the audit log shows widen firing near-universally.
+- **No blocking open questions.** One acknowledged tradeoff (QP-D6 / §4): the AND default + frequent widen means many claims cost 2 arXiv calls; accepted, mitigated by 2–4 terms, revisit only if the audit log shows widen firing near-universally.
+- **WATCH-ITEM (downstream, not a spec defect) — self-circularity on published ideas.** Once retrieval works on CM claims, a scoped cond-mat search on a *Hirsch-derived* claim will retrieve **Hirsch's own papers**, which the grounder may then cite as "support" — grounding a claim in its own source. This is an orthogonal published-idea concern (a non-issue for Ran's genuinely-novel idea, where no prior source exists). It is **not** addressed by this spec, but the audit synergy (QP-D7 / §7) makes it **checkable for free**: the `.candidates` log records the pool + per-article disposition, so the Hirsch re-run will literally show whether a credited source is the claim's own origin paper. Eyeball it in the re-run; if it proves real, it's a separate "source-independence / self-citation" feature (e.g. flag pool articles authored-by/citing the idea's origin), not a change here.
