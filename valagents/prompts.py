@@ -367,7 +367,7 @@ Model the mechanism as a set of first-order ODEs (primitive "ode_integrate"): gi
 each (plain SymPy-parseable expressions in the state vars + parameters, e.g. "-a*x + b*y"), fixed params and \
 initial conditions (init), and — REQUIRED for robustness — a param_sweep and/or init_sweep of ranges \
 [lo, hi, n]. Give the observable (one of: final_value, mean_window, amplitude, settle_std, max_value, \
-min_value) with its var and window_frac in (0,1], a structured criterion {{"op": ge|le|gt|lt|in, \
+min_value, max_abs) with its var and window_frac in (0,1], a structured criterion {{"op": ge|le|gt|lt|in, \
 "threshold": [..]}} that the observable must satisfy for the claimed behavior, and robust_frac in [0,1] (the \
 fraction of the swept grid on which the criterion must hold). Include positive caps: max_steps, \
 max_grid_points, max_state_vars, max_expr_nodes.
@@ -376,6 +376,13 @@ To test ATTRIBUTION (that the behavior is caused by the proposed mechanism, not 
 mechanism's coupling as a named parameter and give its OFF-value in null_overrides (e.g. a coupling "g" with \
 null_overrides {{"g": "0"}}); the executor then requires the behavior to appear WITH the mechanism and vanish \
 WITHOUT it. Omit null_overrides only if the mechanism cannot be turned off by a parameter.
+
+For a BOUNDEDNESS claim (the dynamics must stay bounded), use observable "max_abs" (peak |var|) with criterion \
+{{"op": "le", "threshold": ["<bound>"]}} and robust_frac 1 — bounded must hold across the WHOLE sweep, so any \
+confirmed-unbounded point refutes. Use window_frac 1 to require boundedness for ALL t; a window_frac below 1 is \
+the WEAKER "eventually bounded" claim (it ignores early transients) — only use it if you mean that. The executor \
+treats a genuine divergence (or a breach above the bound) as a FAIL only when it survives dt-refinement, so a \
+mere step-size blow-up stays uncertain; budget max_steps with headroom for refinement.
 
 Alternatively, for a LINEAR-STABILITY claim (primitive "linear_stability"): give the RHS and the parameters, \
 DERIVE the equilibrium and preregister it as fixed_point (REQUIRED — one coordinate per state var, each a \

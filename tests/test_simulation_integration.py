@@ -213,3 +213,40 @@ async def test_ls_numeric_fixed_point_coerced():
     assert p is not None and p.fixed_point == {"x": "0"}
     await run_simulation_checks(s, router(body), cfg())
     assert [a for a in s.current.attacks if a.type == "simulation"]   # ran end-to-end (not dropped to None)
+
+# ---------------------------------------------------------------------------
+# Task-7 tests: bounded claim (max_abs + le + window_frac=1 + robust_frac=1)
+# ---------------------------------------------------------------------------
+
+BOUNDED_PLAN = {
+    "primitive": "ode_integrate", "state_vars": ["x"], "rhs": {"x": "-x + 0*a"},
+    "params": {}, "init": {"x": "1.0"}, "t_span": ["0", "5"], "dt": "0.01",
+    "param_sweep": {"a": ["0.8", "1.2", "5"]},
+    "observable": {"name": "max_abs", "var": "x", "window_frac": "1.0"},
+    "sim_criterion": {"op": "le", "threshold": ["2.0"]}, "robust_frac": "1",
+    "max_steps": 2000, "max_grid_points": 50, "max_state_vars": 4, "max_expr_nodes": 50,
+}
+BOUNDED_BODY = "```json\n" + json.dumps(BOUNDED_PLAN) + "\n```"
+UNBOUNDED_PLAN = {**BOUNDED_PLAN, "rhs": {"x": "x**2 + 0*a"}, "t_span": ["0", "2"], "dt": "0.001",
+                  "max_steps": 20000, "sim_criterion": {"op": "le", "threshold": ["10.0"]}}
+UNBOUNDED_BODY = "```json\n" + json.dumps(UNBOUNDED_PLAN) + "\n```"
+
+async def test_bounded_pass_is_discounted_survived():
+    s = _store()
+    await run_simulation_checks(s, router(BOUNDED_BODY), cfg())
+    sims = [a for a in s.current.attacks if a.type == "simulation"]
+    assert sims and sims[0].status == "survived"
+    assert s.current.claim_graph[0].checks == []          # discounted: no CheckRecord
+    assert "max_abs" in sims[0].basis                      # the observable basis branch renders max_abs
+    assert "simulation" in s.current.attack_surface.attempted
+
+async def test_bounded_unbounded_challenges():
+    s = _store(role="novel_core", load_bearing=True)
+    await run_simulation_checks(s, router(UNBOUNDED_BODY), cfg())
+    sims = [a for a in s.current.attacks if a.type == "simulation"]
+    assert sims and sims[0].status == "landed" and sims[0].severity == "fatal"
+    assert s.current.verdict_class == "challenged"
+
+def test_prompt_teaches_bounded_claim():
+    from valagents.prompts import SIMULATION_DESIGNER
+    assert "max_abs" in SIMULATION_DESIGNER and "window_frac" in SIMULATION_DESIGNER

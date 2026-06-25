@@ -365,3 +365,17 @@ def test_run_bounded_discrimination_uncertain_propagates():
                        sim_criterion={"op": "le", "threshold": ["10.0"]}, robust_frac="1"), cfg())
     # mechanism arm (large a) damps x below 10; null arm (a=0) -> x^2 diverges -> confirmed -> discriminate
     assert v.verdict == "pass" and "discriminating" in v.measured
+
+def test_run_bounded_null_arm_uncertain_propagates():
+    # Per-arm fail-closed rule: if the NULL arm returns "uncertain", the WHOLE run is uncertain.
+    # MECHANISM arm: x'=-a*x with small a (a in [0.1, 0.2]) -> mild decay, max_abs=1.0 < bound=2.0,
+    #   confirmed bounded at base dt (lam*dt=0.005, well inside RK4 stability) -> vm="bounded".
+    # NULL arm: null_overrides={"a": "1000"} -> x'=-1000*x, dt=0.05 -> lam*dt=50 (deep-unstable stiff).
+    #   All 3 refinements (lam*dt=25,12.5,6.25) also unstable; _trajectory_converges returns False ->
+    #   vn="uncertain" (info["max_abs"]=="trajectory_unconverged"). Line 578 fires -> whole run uncertain.
+    v = run_plan(splan(rhs={"x": "-a*x"}, init={"x": "1.0"}, params={},
+                       param_sweep={"a": ["0.1", "0.2", "5"]}, null_overrides={"a": "1000"},
+                       t_span=["0", "5"], dt="0.05", max_steps=20000,
+                       observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "le", "threshold": ["2.0"]}, robust_frac="1"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
