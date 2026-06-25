@@ -44,6 +44,7 @@ BASE = {
              {"label": "A2", "direction": "supports",
               "quote": "The revised effect exists and has been experimentally confirmed here."}]}
     ),
+    "query_planner": "ARCHIVES: cond-mat | TERMS: effect, exists",  # grounder retrieval planner (query-agnostic FakeBackend)
     "completer": (
         "COMPLETION_STATUS: completed_candidate | COMPLETED_IDEA: completed x | "
         "MECHANISM: x causes y under stated assumptions | WEAKEST_LINK: c1\n"
