@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from valagents.web_search import backend_label
+from valagents.prompts import QUERY_PLANNER
+from valagents.agents.base import build_messages, split_list
+from valagents.parse import checked
 
 
 @dataclass(frozen=True)
@@ -43,3 +46,24 @@ def render_query(planned: PlannedQuery, backend, widen: bool = False) -> str:
         cat_q = "(" + " OR ".join(f"cat:{a}*" for a in planned.archives) + ")"   # wildcard MANDATORY
         return f"{cat_q} AND {term_q}"
     return term_q                                                                # terms-only (rung 2)
+
+
+async def plan_query(text: str, llm, cfg, context: str = "") -> PlannedQuery:
+    """Ask the LLM for a focused arXiv query. Validates archives in CODE (leaf->archive truncation,
+    allow-list, cap 2) and caps terms (4). On any failure returns an empty PlannedQuery -> rung 'raw'."""
+    user = QUERY_PLANNER.format(text=text, context=context or "(none)")
+    tail = await checked(
+        "query_planner",
+        build_messages("You build focused literature-search queries.", user),
+        ["ARCHIVES", "TERMS"],
+        llm=llm,
+    )
+    if tail is None:
+        return PlannedQuery()
+    archives: list[str] = []
+    for a in split_list(tail["archives"]):
+        arch = a.split(".")[0].strip().lower()           # leaf (cond-mat.supr-con) -> archive (cond-mat)
+        if arch in VALID_ARCHIVES and arch not in archives:
+            archives.append(arch)
+    terms = [t for t in split_list(tail["terms"]) if t][:4]
+    return PlannedQuery(archives=archives[:2], terms=terms)

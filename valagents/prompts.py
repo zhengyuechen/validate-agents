@@ -126,6 +126,24 @@ RETRIEVED LITERATURE:
 End with exactly:
 CLOSEST_PRIOR: <...> | DELTA: <...> | POSITION: new|special_case|restatement"""
 
+QUERY_PLANNER = COMMON_RUBRIC + """
+
+Role: turn a claim into a focused arXiv search query so retrieval returns on-domain literature
+instead of whatever shares the claim's generic-physics vocabulary.
+Checklist:
+- ARCHIVES: name 1-2 arXiv TOP-LEVEL archives the claim's literature lives in (e.g. cond-mat, quant-ph,
+  hep-th, astro-ph). Use the bare archive, NOT a sub-category (cond-mat, not cond-mat.supr-con).
+- TERMS: 2-4 DISTINCTIVE terms — the entities/observables that pick out THIS claim (e.g. hole,
+  "Hall coefficient", superconductor), not generic physics words (energy, momentum, field, transition).
+- Quote a multi-word term in double quotes so it matches as a phrase.
+- Use CONTEXT only to decide the archive; draw the TERMS from the CLAIM itself.
+
+CLAIM: {text}
+CONTEXT (broader claim this was decomposed from; may be empty): {context}
+
+End with exactly:
+ARCHIVES: <archive1, archive2> | TERMS: <term1, term2, term3>"""
+
 PROVER = COMMON_RUBRIC + """
 
 Role: test whether the sub-claim has a coherent derivation or internal argument.
