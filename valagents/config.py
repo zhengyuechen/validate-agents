@@ -12,6 +12,8 @@ class GroundCfg(BaseModel):
     quote_min_tokens: int = 6       # min word-tokens in a substantial referent-binding quote (§6)
     reference_rel_tol: float = 1e-3 # G-D9 scale-table both-directions reference-test tolerance
     subject_saturation_frac: float = 0.6  # token in >= this fraction of retrieved abstracts = subject/topic (Tier-2 §5)
+    query_planner: bool = True            # default-ON: LLM proposes cat:+terms, code retrieves (QP-D8)
+    widen_min_results: int = 3            # below this hit count, widen keywords AND->OR; cat: scope fixed (QP-D3)
 
 class CiteAuditCfg(BaseModel):
     min_name_tokens: int = 3   # a narrative name needs >= this many content tokens to be "title-like" (CA-D5)

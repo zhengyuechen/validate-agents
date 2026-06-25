@@ -81,3 +81,59 @@ async def test_plan_query_forwards_context_into_prompt():
 async def test_plan_query_failsoft_empty_on_unparseable():
     p = await plan_query("x", FakeLLM(lambda a, m: "I cannot help."), _cfg())
     assert p == PlannedQuery() and p.archives == [] and p.terms == []
+
+
+# --- Task 3: planned_search ladder ---
+from valagents.agents.query_planner import planned_search
+from valagents.web_search import Article
+
+
+def _pool(n):
+    return [Article(title=f"T{i}", summary="s", url=f"http://arxiv.org/abs/x{i}v1", published="2025") for i in range(n)]
+
+
+async def test_planned_search_scoped_then_widens_keywords_not_scope(monkeypatch):
+    pool, queries, calls = _pool(5), [], {"n": 0}
+    async def fake_search(self, query, max_results=10):
+        queries.append(query); calls["n"] += 1
+        return pool[:1] if calls["n"] == 1 else pool        # thin first hit -> widen fires
+    monkeypatch.setattr(ArxivBackend, "search", fake_search)
+    llm = FakeLLM(lambda a, m: 'ARCHIVES: cond-mat | TERMS: hole, "Hall coefficient"')
+    fmt, arts, block = await planned_search(ArxivBackend(), "claim text", llm, _cfg())
+    assert queries == ['(cat:cond-mat*) AND (hole AND "Hall coefficient")',
+                       '(cat:cond-mat*) AND (hole OR "Hall coefficient")']
+    assert block["rung"] == "scoped" and block["widened"] is True and block["n_hits"] == 5
+    assert block["archives"] == ["cond-mat"] and block["rendered"] == queries[1]
+
+
+async def test_planned_search_terms_only_when_no_valid_archive(monkeypatch):
+    queries = []
+    async def fake_search(self, query, max_results=10):
+        queries.append(query); return _pool(5)
+    monkeypatch.setattr(ArxivBackend, "search", fake_search)
+    llm = FakeLLM(lambda a, m: "ARCHIVES: frobnicate | TERMS: hole, gap")
+    fmt, arts, block = await planned_search(ArxivBackend(), "the full claim sentence", llm, _cfg())
+    assert block["rung"] == "terms_only"
+    assert queries[0] == "(hole AND gap)"                   # no cat:, and NEVER the raw sentence
+    assert "claim" not in queries[0]
+
+
+async def test_planned_search_raw_when_planner_disabled(monkeypatch):
+    cfg = Config(default_model="fake"); cfg.grounding.query_planner = False
+    queries = []
+    async def fake_search(self, query, max_results=10):
+        queries.append(query); return _pool(1)
+    monkeypatch.setattr(ArxivBackend, "search", fake_search)
+    llm = FakeLLM(lambda a, m: "ARCHIVES: cond-mat | TERMS: hole")     # ignored: planner off
+    fmt, arts, block = await planned_search(ArxivBackend(), "the full claim sentence", llm, cfg)
+    assert block["rung"] == "raw" and queries == ["the full claim sentence"]   # single call, current behavior
+
+
+async def test_planned_search_raw_on_planner_collapse(monkeypatch):
+    queries = []
+    async def fake_search(self, query, max_results=10):
+        queries.append(query); return _pool(1)
+    monkeypatch.setattr(ArxivBackend, "search", fake_search)
+    llm = FakeLLM(lambda a, m: "no machine-readable tail here")        # plan_query -> empty
+    fmt, arts, block = await planned_search(ArxivBackend(), "raw claim", llm, _cfg())
+    assert block["rung"] == "raw" and queries == ["raw claim"]

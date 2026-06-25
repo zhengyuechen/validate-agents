@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from valagents.web_search import backend_label
+from valagents.web_search import backend_label, search_articles
 from valagents.prompts import QUERY_PLANNER
 from valagents.agents.base import build_messages, split_list
 from valagents.parse import checked
@@ -67,3 +67,29 @@ async def plan_query(text: str, llm, cfg, context: str = "") -> PlannedQuery:
             archives.append(arch)
     terms = [t for t in split_list(tail["terms"]) if t][:4]
     return PlannedQuery(archives=archives[:2], terms=terms)
+
+
+async def planned_search(backend, text: str, llm, cfg, context: str = "") -> tuple[str, list, dict]:
+    """Plan -> validate -> render -> retrieve via the 3-rung fail-soft ladder with one widen step.
+    Returns (formatted, articles, query_block). query_block is the audit record of what actually ran."""
+    arxiv = backend_label(backend) == "arxiv"
+
+    planned = PlannedQuery()
+    if cfg.grounding.query_planner:
+        planned = await plan_query(text, llm, cfg, context=context)
+
+    if not planned.terms:                                          # RUNG 3: planner collapse -> today's behavior
+        fmt, arts = await search_articles(backend, text)
+        return fmt, arts, {"rung": "raw", "archives": [], "terms": [],
+                           "rendered": text, "widened": False, "n_hits": len(arts)}
+
+    rung = "scoped" if (planned.archives and arxiv) else "terms_only"
+    q = render_query(planned, backend, widen=False)
+    fmt, arts = await search_articles(backend, q)
+    widened = False
+    if arxiv and len(arts) < cfg.grounding.widen_min_results:      # widen KEYWORDS (AND->OR); cat: scope fixed
+        q = render_query(planned, backend, widen=True)
+        fmt, arts = await search_articles(backend, q)
+        widened = True
+    return fmt, arts, {"rung": rung, "archives": list(planned.archives), "terms": list(planned.terms),
+                       "rendered": q, "widened": widened, "n_hits": len(arts)}
