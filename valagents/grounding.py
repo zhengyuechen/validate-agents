@@ -142,6 +142,62 @@ def _satisfies(op: str, claim_val: float, source_val: float) -> bool:
     return abs(source_val - claim_val) <= 1e-9 * max(abs(claim_val), 1e-300)
 
 
+from dataclasses import dataclass
+
+
+@dataclass
+class GroundingResult:
+    status: str                       # supports | contradicts | inconclusive | unconfirmed
+    reason: str = ""
+    converted_value: float | None = None
+    quote: str = ""
+    referent: str = ""
+    source_conditions: str = ""
+    source_unit_token: str = ""
+
+
+def _one_float(s) -> float | None:
+    vals = _parse_floats(str(s))
+    return vals[0] if vals else None
+
+
+def ground_value(asserted_value: str, source_unit: str, source_quantity: str, claim_conditions: str,
+                 extraction: dict | None, fetched_text: str, cfg) -> GroundingResult:
+    """§5 four-outcome adjudicator. Pure code; no exception escapes (any failure -> unconfirmed). The harmful
+    direction is a false 'supports' — guarded by quote+unit+quantity+conditions gates BEFORE the numeric step."""
+    g = cfg.grounding
+    if not extraction:
+        return GroundingResult("unconfirmed", reason="not_found")
+    ev = _one_float(extraction.get("extracted_value"))
+    unit_token = extraction.get("source_unit_token", "")
+    referent = extraction.get("referent", "")
+    src_cond = extraction.get("source_conditions", "")
+    quote = extraction.get("verbatim_quote", "")
+    if ev is None:
+        return GroundingResult("unconfirmed", reason="unparseable_value")
+    if not _quote_valid(quote, fetched_text, ev, unit_token, referent, g.quote_min_tokens):
+        return GroundingResult("unconfirmed", reason="quote_invalid")
+    converted = convert(ev, unit_token, source_unit)            # CODE owns the conversion
+    if converted is None:
+        return GroundingResult("unconfirmed", reason="unit_out_of_table")
+    if not _quantity_overlap(referent, source_quantity):
+        return GroundingResult("unconfirmed", reason="quantity_mismatch")
+    # SHOWABLE from here (quote+unit+quantity all valid) — carry the loud fields on every remaining outcome.
+    loud = dict(converted_value=converted, quote=quote, referent=referent,
+                source_conditions=src_cond, source_unit_token=unit_token)
+    asserted = _one_float(asserted_value)
+    if asserted is None or asserted == 0.0 or converted == 0.0:
+        return GroundingResult("inconclusive", reason="numeric_inconclusive", **loud)
+    ratio = max(abs(converted / asserted), abs(asserted / converted))
+    cond_ok = _conditions_compatible(claim_conditions, src_cond)
+    if cond_ok and ratio < g.supports_factor:
+        return GroundingResult("supports", **loud)
+    if cond_ok and ratio >= g.contradict_factor:
+        return GroundingResult("contradicts", reason="gross_disagreement", **loud)
+    return GroundingResult("inconclusive",
+                           reason=("numeric_inconclusive" if cond_ok else "conditions_unconfirmed"), **loud)
+
+
 def _conditions_compatible(claim_conditions: str, source_conditions: str) -> bool:
     """§5 G-D5b/c: the source regime must lie within the claim regime on every v1 axis the claim constrains,
     AND must not pin a non-zero value on a v1 axis the claim leaves free (G-D5c). Err to False (not confirmed).
