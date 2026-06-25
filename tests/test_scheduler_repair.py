@@ -13,7 +13,7 @@ def _grounder_body(tail: str, payload: dict) -> str:
 class FakeBackend:
     async def search(self, query, max_results=5):
         return [
-            Article(title="A", summary="The effect exists and has been experimentally confirmed here.",
+            Article(title="A", summary="The revised effect exists and has been experimentally confirmed here.",
                     url="https://example.com/a", published="2026"),
             Article(title="B", summary="A separate group independently studied the same phenomenon.",
                     url="https://example.com/b", published="2026"),
@@ -38,12 +38,11 @@ BASE = {
     "grounder": _grounder_body(
         "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 2 | BASIS: ok\n"
         "CLOSEST_PRIOR: p | DELTA: d | POSITION: new",
-        {"asserted_property": "exists", "subject_phrase": "effect",
-         "citations": [
+        {"citations": [
              {"label": "A1", "direction": "supports",
-              "quote": "The effect exists and has been experimentally confirmed here."},
+              "quote": "The revised effect exists and has been experimentally confirmed here."},
              {"label": "A2", "direction": "supports",
-              "quote": "The effect exists and has been experimentally confirmed here."}]}
+              "quote": "The revised effect exists and has been experimentally confirmed here."}]}
     ),
     "completer": (
         "COMPLETION_STATUS: completed_candidate | COMPLETED_IDEA: completed x | "

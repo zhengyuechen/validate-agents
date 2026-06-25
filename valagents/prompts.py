@@ -99,14 +99,13 @@ RETRIEVED LITERATURE:
 End with exactly this line:
 CLAIM: {cid} | SUPPORT: supported|unsupported|uncertain | INDEPENDENT_SOURCES: <n> | BASIS: <...>
 
-Then, on the next lines, a JSON block naming the claim's property and your per-source citations:
+Then, on the next lines, a JSON block with your per-source citations:
 ```json
-{{"asserted_property": "<what the claim asserts about its subject, copied from the sub-claim's own words>",
-  "subject_phrase": "<the entity/material/system the sub-claim is about>",
-  "citations": [{{"label": "A1", "direction": "supports", "quote": "<one verbatim sentence copied from that abstract>"}}]}}
+{{"citations": [{{"label": "A1", "direction": "supports", "quote": "<one verbatim sentence copied from that abstract>"}}]}}
 ```
 - Copy each quote verbatim as a single complete sentence from the cited abstract; do not paraphrase or splice.
 - direction is "supports" if that sentence backs the sub-claim, "contradicts" if it states the opposite.
+- Pick supporting quotes that state the sub-claim's actual property, not merely the same subject; code checks each quote against the claim, so an off-topic sentence earns nothing.
 - Cite only labels present in RETRIEVED LITERATURE; omit citations if none apply (use an empty list)."""
 
 GROUNDER_NOVELTY = COMMON_RUBRIC + """

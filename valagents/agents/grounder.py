@@ -9,7 +9,7 @@ from valagents.prompts import GROUNDER_CLAIM, GROUNDER_NOVELTY
 from valagents.agents.base import build_messages, map_support_to_verdict, as_int, choice
 from valagents.agents.value_grounder import _extract_json
 from valagents.grounding import (
-    _quote_admissible, _support_quote_valid, _retrieval_saturated_tokens, _content_tokens, _norm,
+    _quote_admissible, _support_quote_valid, _retrieval_saturated_tokens, _norm,
 )
 from valagents.web_search import search_articles
 from valagents import references
@@ -41,11 +41,13 @@ async def ground_claim(
     """Ground a single atomic claim against retrieved literature (Tier-2: code-witnessed support).
 
     The LLM emits a SUPPORT/INDEPENDENT_SOURCES/BASIS tail PLUS a citations JSON (per-source
-    {label, direction, quote}) + asserted_property + subject_phrase. Pure code (grounding.py) adjudicates
-    each quote: anti-fabrication + sentence-bound + substantial (both directions), plus an on-property
-    floor (supports only). The credited count is the number of DISTINCT retrieved works carrying a passing
-    SUPPORTS quote, capped by both retrieval and the model's self-report. A passing CONTRADICTS quote forces
-    a pass→uncertain downgrade. Code witnesses presence + on-property topicality + anti-fabrication — NOT
+    {label, direction, quote}) — and NOTHING ELSE the floor depends on. Pure code (grounding.py) adjudicates
+    each quote: anti-fabrication + sentence-bound + substantial (both directions), plus a supports-only
+    on-property floor whose distinctive token set is derived in CODE from the CLAIM minus the retrieval-
+    saturated subject (T2-D12 — the model cannot choose the set, so it cannot launder credit via a property
+    declaration). The credited count is the number of DISTINCT retrieved works carrying a passing SUPPORTS
+    quote, capped by both retrieval and the model's self-report. A passing CONTRADICTS quote forces a
+    pass→uncertain downgrade. Code witnesses presence + on-property topicality + anti-fabrication — NOT
     entailment, NOT independence (the direction is the model's loud label). artifact.py is untouched.
     """
     formatted, articles = await search_articles(backend, claim.statement)
@@ -65,13 +67,12 @@ async def ground_claim(
 
     g = cfg.grounding
     data = _extract_json(body) or {}
-    asserted_property = str(data.get("asserted_property", ""))
-    subject_phrase = str(data.get("subject_phrase", ""))
     raw_citations = data.get("citations")
     citations = raw_citations if isinstance(raw_citations, list) else []
 
-    # §5: subtract the UNION of code-saturated topic tokens and the LLM-named subject tokens (thin-corpus fix).
-    subject_tokens = _retrieval_saturated_tokens(articles, g.subject_saturation_frac) | _content_tokens(subject_phrase)
+    # §5 (T2-D12): the subject subtractor is the CODE-derived retrieval-saturated set ONLY — model-independent.
+    # The distinctive property set (claim − subject) is computed inside _support_quote_valid from claim.statement.
+    subject_tokens = _retrieval_saturated_tokens(articles, g.subject_saturation_frac)
 
     passing: list = []
     contradicted = False
@@ -92,7 +93,7 @@ async def ground_claim(
                     contradiction_quote = quote
         elif direction == "supports":
             if _support_quote_valid(quote, art.summary, claim.statement,
-                                    asserted_property, subject_tokens, g.quote_min_tokens):
+                                    subject_tokens, g.quote_min_tokens):
                 passing.append(art)
 
     deduped = _dedup_articles(passing)
