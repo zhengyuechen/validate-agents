@@ -89,3 +89,66 @@ def _quote_valid(quote: str, fetched_text: str, extracted_value: float,
     if not _content_tokens(referent) & _content_tokens(quote):  # carries the referent
         return False
     return True
+
+
+# The conditions parser's OWN ladders (G-D5b/F3) — NEVER SCALE_TABLE (whose K is energy-via-k_B, T is Tesla).
+_TEMP_UNITS = {"k": 1.0, "mk": 1e-3, "µk": 1e-6, "uk": 1e-6}
+_FIELD_UNITS = {"t": 1.0, "mt": 1e-3, "g": 1e-4, "gauss": 1e-4, "oe": 1e-4}
+_AXIS_BY_SYMBOL = {"t": "temperature", "temp": "temperature", "temperature": "temperature",
+                   "b": "field", "h": "field", "field": "field"}
+_AXIS_BY_UNIT = {**{u: "temperature" for u in _TEMP_UNITS}, **{u: "field" for u in _FIELD_UNITS}}
+_CLAUSE_RE = re.compile(
+    r"(?:(?P<sym>[a-zµ]+)\s*(?P<op><=|>=|=|<|>|~)\s*)?(?P<val>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*(?P<unit>[a-zµ^\-0-9]+)")
+
+
+def _to_canonical(value: float, unit: str, axis: str) -> float | None:
+    table = _TEMP_UNITS if axis == "temperature" else _FIELD_UNITS
+    f = table.get(unit)
+    return None if f is None else value * f
+
+
+def _parse_clauses(s: str) -> dict[str, tuple[str, float]] | None:
+    """Parse 'T < 1 K, B = 0' into {axis: (op, canonical_value)}. A bare point ('400 mK') -> op '='.
+    Returns {} if nothing parsed. Unit disambiguates the energy-K vs temperature-K collision: a clause's
+    unit is resolved in the conditions ladders, and the axis is taken from the symbol (if present) else the unit."""
+    out: dict[str, tuple[str, float]] = {}
+    for m in _CLAUSE_RE.finditer(_norm(s)):
+        unit = m.group("unit")
+        sym = m.group("sym")
+        axis = _AXIS_BY_SYMBOL.get(sym) if sym else None
+        if axis is None:
+            axis = _AXIS_BY_UNIT.get(unit)
+        if axis is None:
+            continue
+        canon = _to_canonical(float(m.group("val")), unit, axis)
+        if canon is None:
+            continue
+        out[axis] = (m.group("op") or "=", canon)
+    return out
+
+
+def _satisfies(op: str, claim_val: float, source_val: float) -> bool:
+    if op == "<":  return source_val < claim_val
+    if op == "<=": return source_val <= claim_val
+    if op == ">":  return source_val > claim_val
+    if op == ">=": return source_val >= claim_val
+    # '=' and '~' : exact point match only (NO regime tolerance — would reopen the wrong-conditions hole)
+    return abs(source_val - claim_val) <= 1e-9 * max(abs(claim_val), 1e-300)
+
+
+def _conditions_compatible(claim_conditions: str, source_conditions: str) -> bool:
+    """§5 G-D5b/c: the source regime must lie within the claim regime on every v1 axis the claim constrains,
+    AND must not pin a non-zero value on a v1 axis the claim leaves free (G-D5c). Err to False (not confirmed)."""
+    claim = _parse_clauses(claim_conditions)
+    source = _parse_clauses(source_conditions)
+    if not claim or source is None:
+        return False
+    for axis, (op, cval) in claim.items():
+        if axis not in source:
+            return False
+        if not _satisfies(op, cval, source[axis][1]):
+            return False
+    for axis, (_, sval) in source.items():                 # G-D5c symmetry
+        if axis not in claim and abs(sval) > 0.0:
+            return False
+    return True
