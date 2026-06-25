@@ -397,6 +397,24 @@ rhs, params, init, param_sweep, init_sweep, t_span, dt, observable, sim_criterio
 max_grid_points, max_state_vars, max_expr_nodes; null_overrides (optional, ode_integrate negative-control only); \
 fixed_point (REQUIRED for linear_stability — omit for ode_integrate)."""
 
+VALUE_GROUNDER = """You READ a source and report what it says about ONE physical quantity. You do NOT judge \
+whether it supports any claim, you do NOT convert units, you do NOT infer — code does the judging. Report the \
+source's PRIMARY value for the quantity, in the SOURCE's own units, with a verbatim quote.
+
+SOURCE TEXT:
+{text}
+
+QUANTITY TO FIND: {source_quantity} (reported in units compatible with {source_unit})
+
+Output a SINGLE JSON object in a ```json fenced block with these keys (or {{"not_found": true}} if the source \
+does not report this quantity):
+- extracted_value: the number the source reports for this quantity, in the source's OWN units (a string)
+- source_unit_token: the unit exactly as written in the source, INCLUDING any denominator (e.g. "emu/g", not "emu")
+- referent: the source's own name/symbol for the quantity, as it appears in your quote
+- source_conditions: the source's stated conditions for this value (e.g. "T = 0.4 K, B = 0"), as written
+- verbatim_quote: a contiguous span COPIED EXACTLY from the source text containing the number, the unit, and the referent
+Do not convert, do not paraphrase the quote, do not pick a value to match any target."""
+
 ARBITER = COMMON_RUBRIC + """
 
 Role: cross-check the computed outcome and identify what matters most.

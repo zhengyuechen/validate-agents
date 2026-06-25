@@ -25,6 +25,10 @@ class ComputationPlan(BaseModel):
     closest_prior_source: str = ""   # mandatory for discriminating_margin (L2-D10) — sourced alternative
     uncertainty: str = ""
     threshold: str = ""
+    # --- grounding (Task 6/7) ---
+    source_quantity: str = ""        # G-D4: the quantity the source is expected to report
+    claim_conditions: str = ""       # G-D5b: regime the claim applies in (e.g. "T < 1 K")
+    source_unit: str = ""            # G-D4: expected unit token for the grounded value
     target_claim_id: str | None = None
     discriminating: bool = False
     # --- simulation (kind="simulation") ---
