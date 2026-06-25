@@ -84,7 +84,10 @@ def _quote_valid(quote: str, fetched_text: str, extracted_value: float,
         return False
     if not _numeral_present(quote, extracted_value):            # carries the value
         return False
-    if _norm(unit_token) not in nq:                             # carries the FULL unit token
+    # whole-token unit check — substring is hollow for single-char units (T/G/K/J),
+    # e.g. 't' appears in "strength"/"transition"/"the"; §6 / final-review R1b
+    unit_n = _norm(unit_token)
+    if not unit_n or not re.search(r"(?<![a-z])" + re.escape(unit_n) + r"(?![a-z])", nq):
         return False
     if not _content_tokens(referent) & _content_tokens(quote):  # carries the referent
         return False
