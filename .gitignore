@@ -3,7 +3,6 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 .DS_Store
-results/*.jsonl
-results/.logs/
+results/
 .env
 *.egg-info/
