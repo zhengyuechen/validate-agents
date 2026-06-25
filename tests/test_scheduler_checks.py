@@ -1,9 +1,14 @@
+import json as _json
 import pytest
 from valagents.scheduler import run_claim_checks
 from valagents.store import ArtifactStore
 from valagents.artifact import IdeaArtifact, FormalClaim, AtomicClaim
 from valagents.web_search import Article
 from tests.fake_llm import FakeLLM
+
+
+def _grounder_body(tail: str, payload: dict) -> str:
+    return tail + "\n```json\n" + _json.dumps(payload) + "\n```"
 
 
 class FakeBackend:
@@ -18,11 +23,22 @@ def store_with(claims):
 
 @pytest.mark.asyncio
 async def test_empirical_claim_grounded_and_exhausted(cfg):
-    # A real backend returning one article with a URL lets the cap pass through:
-    # matched_independent=1, min(1,1)=1 → map_support_to_verdict("supported",1) → "pass".
+    # Tier-2: a code-witnessed on-property quote from a retrieved article → pass.
+    # Two articles so "exists" token (in A1 only) stays below saturation threshold
+    # (1/2=0.5 < 0.6) and remains distinctive.
     s = store_with([AtomicClaim(id="c1", statement="effect exists", type="empirical")])
-    body = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | SOURCES: A1 | BASIS: ok"
-    backend = FakeBackend([Article(title="T", summary="s", url="https://example.com/u")])
+    arts = [
+        Article(title="T", summary="The effect exists and has been confirmed here.",
+                url="https://example.com/u", published="2024"),
+        Article(title="U", summary="A separate study examined the same phenomenon.",
+                url="https://example.com/v", published="2024"),
+    ]
+    tail = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | BASIS: ok"
+    payload = {"asserted_property": "exists", "subject_phrase": "effect",
+               "citations": [{"label": "A1", "direction": "supports",
+                              "quote": "The effect exists and has been confirmed here."}]}
+    body = _grounder_body(tail, payload)
+    backend = FakeBackend(arts)
     await run_claim_checks(s, backend, FakeLLM(lambda a, m: body), cfg)
     c = s.current.claim_graph[0]
     assert c.status == "pass" and c.exhausted is True

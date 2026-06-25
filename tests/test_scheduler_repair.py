@@ -1,3 +1,4 @@
+import json as _json
 import pytest
 
 from valagents.scheduler import run
@@ -5,11 +6,17 @@ from valagents.web_search import Article
 from tests.fake_llm import FakeLLM
 
 
+def _grounder_body(tail: str, payload: dict) -> str:
+    return tail + "\n```json\n" + _json.dumps(payload) + "\n```"
+
+
 class FakeBackend:
     async def search(self, query, max_results=5):
         return [
-            Article(title="A", summary="support", url="https://example.com/a", published="2026"),
-            Article(title="B", summary="support", url="https://example.com/b", published="2026"),
+            Article(title="A", summary="The effect exists and has been experimentally confirmed here.",
+                    url="https://example.com/a", published="2026"),
+            Article(title="B", summary="A separate group independently studied the same phenomenon.",
+                    url="https://example.com/b", published="2026"),
         ]
 
 
@@ -28,10 +35,15 @@ BASE = {
         "STATEMENT: effect exists"
     ),
     "entailment": "COVERS: complete | MISSING: none",
-    "grounder": (
-        "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 2 | "
-        "SOURCES: A1,A2 | BASIS: ok\n"
-        "CLOSEST_PRIOR: p | DELTA: d | POSITION: new"
+    "grounder": _grounder_body(
+        "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 2 | BASIS: ok\n"
+        "CLOSEST_PRIOR: p | DELTA: d | POSITION: new",
+        {"asserted_property": "exists", "subject_phrase": "effect",
+         "citations": [
+             {"label": "A1", "direction": "supports",
+              "quote": "The effect exists and has been experimentally confirmed here."},
+             {"label": "A2", "direction": "supports",
+              "quote": "The effect exists and has been experimentally confirmed here."}]}
     ),
     "completer": (
         "COMPLETION_STATUS: completed_candidate | COMPLETED_IDEA: completed x | "

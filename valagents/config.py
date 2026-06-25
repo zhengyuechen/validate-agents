@@ -11,6 +11,7 @@ class GroundCfg(BaseModel):
     contradict_factor: float = 10.0 # ratio >= this AND conditions-confirmed -> contradicts (G-D7)
     quote_min_tokens: int = 6       # min word-tokens in a substantial referent-binding quote (§6)
     reference_rel_tol: float = 1e-3 # G-D9 scale-table both-directions reference-test tolerance
+    subject_saturation_frac: float = 0.6  # token in >= this fraction of retrieved abstracts = subject/topic (Tier-2 §5)
 
 class GateCfg(BaseModel):
     min_attack_categories: int = 2  # categories the Red-team must attempt for internally_validated

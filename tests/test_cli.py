@@ -15,7 +15,7 @@ from valagents.artifact import (
 )
 from valagents.cli import render_report, run_cli
 from valagents.references import Reference
-from tests.test_scheduler_repair import BASE, FakeBackend, scripted
+from tests.test_scheduler_repair import BASE, FakeBackend, scripted, _grounder_body
 
 
 class FakeResolver:
@@ -86,9 +86,12 @@ async def test_run_cli_accepts_explicit_run_id(tmp_path, cfg):
 
 async def test_run_cli_writes_references_bib_and_markers(tmp_path, cfg):
     script = dict(BASE)
-    script["grounder"] = (
-        "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | SOURCES: A1 | BASIS: ok\n"
-        "CLOSEST_PRIOR: p | DELTA: d | POSITION: new"
+    script["grounder"] = _grounder_body(
+        "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | BASIS: ok\n"
+        "CLOSEST_PRIOR: p | DELTA: d | POSITION: new",
+        {"asserted_property": "exists", "subject_phrase": "effect",
+         "citations": [{"label": "A1", "direction": "supports",
+                        "quote": "The effect exists and has been experimentally confirmed here."}]}
     )
     script["redteam"] = (
         "ATTEMPTED: counterexample, magnitude\n"

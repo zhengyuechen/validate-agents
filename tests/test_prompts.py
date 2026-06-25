@@ -25,7 +25,6 @@ TEMPLATE_CONTRACTS = {
         "CLAIM:",
         "SUPPORT:",
         "INDEPENDENT_SOURCES:",
-        "SOURCES:",
         "BASIS:",
     ],
     "GROUNDER_NOVELTY": ["CLOSEST_PRIOR:", "DELTA:", "POSITION:"],
@@ -71,10 +70,13 @@ TEMPLATE_CONTRACTS = {
 
 
 def test_all_prompts_format_and_keep_strict_tail_labels():
+    # GROUNDER_CLAIM intentionally contains a JSON example block with braces (Tier-2 citations schema).
+    _brace_exempt = {"GROUNDER_CLAIM"}
     for name, labels in TEMPLATE_CONTRACTS.items():
         rendered = getattr(prompts, name).format(**FORMAT_ARGS)
-        assert "{" not in rendered
-        assert "}" not in rendered
+        if name not in _brace_exempt:
+            assert "{" not in rendered, name
+            assert "}" not in rendered, name
         for label in labels:
             assert label in rendered, name
 
