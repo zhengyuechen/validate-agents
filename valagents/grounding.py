@@ -92,13 +92,16 @@ def _quote_valid(quote: str, fetched_text: str, extracted_value: float,
 
 
 # The conditions parser's OWN ladders (G-D5b/F3) — NEVER SCALE_TABLE (whose K is energy-via-k_B, T is Tesla).
-_TEMP_UNITS = {"k": 1.0, "mk": 1e-3, "µk": 1e-6, "uk": 1e-6}
-_FIELD_UNITS = {"t": 1.0, "mt": 1e-3, "g": 1e-4, "gauss": 1e-4, "oe": 1e-4}
+# N1: µk key uses GREEK MU (U+03BC) — the post-NFKC form that _norm produces from both MICRO SIGN and GREEK MU.
+_TEMP_UNITS = {"k": 1.0, "mk": 1e-3, "μk": 1e-6, "uk": 1e-6, "kelvin": 1.0, "millikelvin": 1e-3}
+# koe: 1 kOe = 1000 Oe × 1e-4 T/Oe = 0.1 T; kg: 1 kG = 1000 G × 1e-4 T/G = 0.1 T; tesla/millitesla spelled-out.
+_FIELD_UNITS = {"t": 1.0, "mt": 1e-3, "g": 1e-4, "gauss": 1e-4, "oe": 1e-4,
+                "tesla": 1.0, "millitesla": 1e-3, "koe": 1e-1, "kg": 1e-1}
 _AXIS_BY_SYMBOL = {"t": "temperature", "temp": "temperature", "temperature": "temperature",
                    "b": "field", "h": "field", "field": "field"}
 _AXIS_BY_UNIT = {**{u: "temperature" for u in _TEMP_UNITS}, **{u: "field" for u in _FIELD_UNITS}}
 _CLAUSE_RE = re.compile(
-    r"(?:(?P<sym>[a-zµ]+)\s*(?P<op><=|>=|=|<|>|~)\s*)?(?P<val>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*(?P<unit>[a-zµ^\-0-9]+)")
+    r"(?:(?P<sym>[a-zµμ]+)\s*(?P<op><=|>=|=|<|>|~)\s*)?(?P<val>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*(?P<unit>[a-zµμ^\-0-9]+)")
 
 
 def _to_canonical(value: float, unit: str, axis: str) -> float | None:
@@ -107,11 +110,15 @@ def _to_canonical(value: float, unit: str, axis: str) -> float | None:
     return None if f is None else value * f
 
 
-def _parse_clauses(s: str) -> dict[str, tuple[str, float]] | None:
-    """Parse 'T < 1 K, B = 0' into {axis: (op, canonical_value)}. A bare point ('400 mK') -> op '='.
-    Returns {} if nothing parsed. Unit disambiguates the energy-K vs temperature-K collision: a clause's
-    unit is resolved in the conditions ladders, and the axis is taken from the symbol (if present) else the unit."""
-    out: dict[str, tuple[str, float]] = {}
+def _parse_clauses(s: str) -> dict[str, list[tuple[str, float | None]]]:
+    """Parse 'T < 1 K, B = 0' into {axis: [(op, canonical_value), ...]}.
+    A bare point ('400 mK') -> op '='. Returns {} if nothing parsed.
+    Unit disambiguates the energy-K vs temperature-K collision: a clause's unit is resolved in the
+    conditions ladders, and the axis is taken from the symbol (if present) else the unit.
+    If the axis is identified but the unit is not in the ladder, records (op, None) — the clause is
+    NOT dropped, so downstream logic can fail closed (C1 fix). Multiple clauses on one axis are all
+    collected — last-write-wins is removed (M1 fix)."""
+    out: dict[str, list[tuple[str, float | None]]] = {}
     for m in _CLAUSE_RE.finditer(_norm(s)):
         unit = m.group("unit")
         sym = m.group("sym")
@@ -119,11 +126,10 @@ def _parse_clauses(s: str) -> dict[str, tuple[str, float]] | None:
         if axis is None:
             axis = _AXIS_BY_UNIT.get(unit)
         if axis is None:
-            continue
+            continue  # genuinely not a v1 clause (no axis identified at all)
         canon = _to_canonical(float(m.group("val")), unit, axis)
-        if canon is None:
-            continue
-        out[axis] = (m.group("op") or "=", canon)
+        # canon may be None if axis identified but unit not in ladder — still record it
+        out.setdefault(axis, []).append((m.group("op") or "=", canon))
     return out
 
 
@@ -138,17 +144,34 @@ def _satisfies(op: str, claim_val: float, source_val: float) -> bool:
 
 def _conditions_compatible(claim_conditions: str, source_conditions: str) -> bool:
     """§5 G-D5b/c: the source regime must lie within the claim regime on every v1 axis the claim constrains,
-    AND must not pin a non-zero value on a v1 axis the claim leaves free (G-D5c). Err to False (not confirmed)."""
+    AND must not pin a non-zero value on a v1 axis the claim leaves free (G-D5c). Err to False (not confirmed).
+
+    Both claim and source are now lists of (op, value|None) per axis (M1 fix: all points checked).
+    A None value anywhere on a claim axis → False (claim unparseable).
+    A None source value on a claim-constrained axis → False (can't confirm).
+    A None source value on an unconstrained axis → False (C1 fix: fail-closed on uncanonicalizable field)."""
     claim = _parse_clauses(claim_conditions)
     source = _parse_clauses(source_conditions)
-    if not claim or source is None:
-        return False
-    for axis, (op, cval) in claim.items():
+    if not claim:
+        return False  # empty or unparseable claim → not confirmed
+    # Check each claim axis is satisfied by ALL source points on that axis
+    for axis, claim_clauses in claim.items():
+        # If any claim value is None, the claim itself is unparseable on this axis
+        for op, cval in claim_clauses:
+            if cval is None:
+                return False
         if axis not in source:
             return False
-        if not _satisfies(op, cval, source[axis][1]):
-            return False
-    for axis, (_, sval) in source.items():                 # G-D5c symmetry
-        if axis not in claim and abs(sval) > 0.0:
-            return False
+        for _, sval in source[axis]:
+            if sval is None:
+                return False  # can't confirm: source axis identified but not canonicalizable
+            for op, cval in claim_clauses:
+                if not _satisfies(op, cval, sval):  # type: ignore[arg-type]
+                    return False
+    # G-D5c symmetry: source axes not in claim must all be zero (or baseline)
+    for axis, source_points in source.items():
+        if axis not in claim:
+            for _, sval in source_points:
+                if sval is None or abs(sval) > 0.0:
+                    return False
     return True
