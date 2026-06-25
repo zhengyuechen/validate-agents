@@ -27,3 +27,65 @@ def convert(value: float, from_token: str, to_token: str) -> float | None:
     if f is None or t is None or f[0] != t[0]:
         return None
     return value * f[1] / t[1]
+
+
+import re
+import unicodedata
+
+_NUM_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?(?:\s*[×x]\s*10\s*\^?\s*[-+]?\d+)?")
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_STOP = {"the", "a", "an", "of", "per", "in", "at", "and", "or", "to", "for", "with", "is", "are",
+         "we", "find", "this", "that", "by", "on", "from", "as", "its", "magnetic"}
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", s or "")).strip().casefold()
+
+
+def _parse_floats(s: str) -> list[float]:
+    out: list[float] = []
+    for m in _NUM_RE.finditer(s or ""):
+        tok = m.group(0)
+        try:
+            if "10" in tok and ("×" in tok or "x" in tok):     # a×10^b surface form
+                mant, _, exp = re.split(r"[×x]\s*10\s*\^?", tok)
+                out.append(float(mant) * 10 ** int(re.sub(r"\s", "", exp)))
+            else:
+                out.append(float(tok))
+        except (ValueError, IndexError):
+            continue
+    return out
+
+
+def _content_tokens(s: str) -> set[str]:
+    return {w for w in _WORD_RE.findall(_norm(s)) if w not in _STOP}
+
+
+def _quantity_overlap(referent: str, source_quantity: str) -> bool:
+    """§5 G-D5a quantity gate: ≥1 shared content token. Necessary floor; symbol↔prose misses -> False (safe)."""
+    return bool(_content_tokens(referent) & _content_tokens(source_quantity))
+
+
+def _numeral_present(quote: str, value: float, rtol: float = 1e-6) -> bool:
+    scale = max(abs(value), 1e-300)
+    return any(abs(x - value) / scale < rtol for x in _parse_floats(quote))
+
+
+def _quote_valid(quote: str, fetched_text: str, extracted_value: float,
+                 unit_token: str, referent: str, min_tokens: int) -> bool:
+    """§6: the quote asserts *this quantity has this value* and is literally in the source.
+    Requires: quote ∈ normalized fetched bytes; quote carries the extracted numeral, the FULL unit token
+    (whole token), and the referent; and ≥ min_tokens whitespace word-tokens. A bare-number / number-only
+    quote fails — that is the anti-fabrication strength, not cosmetic."""
+    nq = _norm(quote)
+    if not nq or nq not in _norm(fetched_text):                 # anti-fabrication
+        return False
+    if len(nq.split()) < min_tokens:                            # substantial
+        return False
+    if not _numeral_present(quote, extracted_value):            # carries the value
+        return False
+    if _norm(unit_token) not in nq:                             # carries the FULL unit token
+        return False
+    if not _content_tokens(referent) & _content_tokens(quote):  # carries the referent
+        return False
+    return True
