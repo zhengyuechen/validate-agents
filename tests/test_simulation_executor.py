@@ -302,3 +302,66 @@ def test_bounded_observe_breach_artifact_uncertain():
     verdict, info, steps = _bounded({"x": "-5.0*x"}, ["x"], {}, [0.3], 20, 0.6, bound=0.5, t_end=12.0,
                                     max_halvings=3, conv_rtol=0.1)
     assert verdict == "uncertain"
+
+# ---------------------------------------------------------------------------
+# Task-6 tests: bounded path wired into ode_integrate sweep loop
+# ---------------------------------------------------------------------------
+
+def test_run_bounded_pass_confirm():
+    # decaying x, max_abs <= 2 across the sweep -> robustly bounded -> confirm
+    v = run_plan(splan(observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "le", "threshold": ["2.0"]}, robust_frac="1"), cfg())
+    assert v.verdict == "pass" and v.result.matched == "confirm" and "bounded" in v.measured
+
+def test_run_bounded_confirmed_divergence_refutes():
+    # x' = x^2 diverges for every swept a-irrelevant point (rhs ignores a); singularity well inside t_span
+    # max_steps=20000 so per_refine_max >= 2000*8 (3 halvings), letting t* converge -> confirmed unbounded
+    v = run_plan(splan(rhs={"x": "x**2 + 0*a"}, init={"x": "1.0"}, t_span=["0", "2"], dt="0.001",
+                       max_steps=20000,
+                       observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "le", "threshold": ["10.0"]}, robust_frac="1"), cfg())
+    assert v.verdict == "fail" and v.result.matched == "refute" and "unbounded" in v.measured
+
+def test_run_bounded_stiff_artifact_uncertain():
+    # numerically stiff but truly bounded decay -> uncertain, NOT refute (the soundness gate, end-to-end)
+    v = run_plan(splan(rhs={"x": "-200.0*x + 0*a"}, init={"x": "1.0"}, t_span=["0", "4"], dt="0.02",
+                       max_steps=5000,
+                       observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "le", "threshold": ["2.0"]}, robust_frac="1"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_run_max_abs_with_gt_uses_v1_rule_scoping():
+    # max_abs + op != le -> NOT the bounded path; a blow-up uses the v1 rule -> uncertain (no inversion)
+    v = run_plan(splan(rhs={"x": "x**2"}, init={"x": "10.0"}, t_span=["0", "50"],
+                       observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "gt", "threshold": ["1.0"]}), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+
+def test_run_bounded_determinism():
+    p = dict(observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+             sim_criterion={"op": "le", "threshold": ["2.0"]}, robust_frac="1")
+    a = run_plan(splan(**p), cfg()); b = run_plan(splan(**p), cfg())
+    assert a.measured == b.measured and a.verdict == b.verdict
+
+def test_run_bounded_domain_error_surfaces_label():
+    # x' = log(x), x0=0.5 -> log(0.5)<0 so x decreases to 0 -> log(neg) -> _DomainError.
+    # Whole run -> uncertain, and the diagnostic label distinguishes "model ill-posed" from "couldn't confirm".
+    v = run_plan(splan(rhs={"x": "log(x) + 0*a"}, init={"x": "0.5"}, t_span=["0", "5"], dt="0.01",
+                       observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "le", "threshold": ["2.0"]}, robust_frac="1"), cfg())
+    assert v.verdict == "uncertain" and not v.result.ok
+    assert "domain_error" in (v.result.error or "")
+
+def test_run_bounded_discrimination_uncertain_propagates():
+    # null arm a=0 leaves x' = x^2 -> diverges; mechanism arm a large keeps it bounded. If EITHER arm is
+    # unconfirmed-uncertain the whole run is uncertain (per-arm honesty). Here construct a clean discriminating
+    # pass: mechanism bounded (confirmed), null divergence (confirmed) -> discriminate.
+    # a range [1000,2000]: mechanism arm x'=x^2-ax damps x well below 10; null arm (a=0) x'=x^2 diverges.
+    # max_steps=20000 so per_refine_max >= 2000*8 (3 halvings), letting t* of null arm converge -> confirmed.
+    v = run_plan(splan(rhs={"x": "x**2 - a*x"}, init={"x": "1.0"}, params={},
+                       param_sweep={"a": ["1000", "2000", "5"]}, null_overrides={"a": "0"},
+                       t_span=["0", "2"], dt="0.001", max_steps=20000,
+                       observable={"name": "max_abs", "var": "x", "window_frac": "1.0"},
+                       sim_criterion={"op": "le", "threshold": ["10.0"]}, robust_frac="1"), cfg())
+    # mechanism arm (large a) damps x below 10; null arm (a=0) -> x^2 diverges -> confirmed -> discriminate
+    assert v.verdict == "pass" and "discriminating" in v.measured

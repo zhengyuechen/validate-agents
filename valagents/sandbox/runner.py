@@ -459,7 +459,8 @@ def _run_simulation(plan: dict) -> dict:
     ceil = plan.get("_sim_ceilings", {})
     _REQUIRED_CEILINGS = ("max_state_vars", "max_expr_nodes", "max_grid_points",
                           "max_steps", "max_total_steps", "min_grid_points",
-                          "fixed_point_tol", "min_points_per_axis")
+                          "fixed_point_tol", "min_points_per_axis",
+                          "max_dt_halvings", "conv_rtol")
     if not all(k in ceil for k in _REQUIRED_CEILINGS):
         return _u("missing/incomplete sandbox ceilings (no run_plan injection)")
     # caps: positive, and not exceeding config ceilings
@@ -539,16 +540,56 @@ def _run_simulation(plan: dict) -> dict:
             rf = parse_num(plan["robust_frac"])
             if not (0.0 < rf <= 1.0):
                 return _u(f"robust_frac must be in (0, 1]: {rf}")
+            is_bounded = (plan["observable"].get("name") == "max_abs"
+                          and plan["sim_criterion"].get("op") == "le")
+            if is_bounded:
+                bound = float(plan["sim_criterion"]["threshold"][0])
+                t_end = t1
+                max_halv = int(ceil["max_dt_halvings"])
+                conv_rtol = float(ceil["conv_rtol"])
+                per_refine_max = min(int(plan["max_steps"]), int(ceil["max_steps"]))
+                total_budget = int(ceil["max_total_steps"])
+                cum_steps = 0
             passes = 0
-            detail = []                                 # per-grid-point audit table (persisted via stdout.txt)
-            for pov, iov in grid:                       # swept overrides fixed
+            detail = []
+            for pov, iov in grid:
                 env_base = {**base_params, **pov}
                 init_vals = {**base_init, **iov}
                 y0 = np.array([init_vals[v] for v in state_vars], dtype=float)
+                if is_bounded:
+                    vm, im, sm = _bounded_observe(rhs_exprs, var_index, env_base, y0, n_steps, dt,
+                                                  plan["observable"], bound, t_end, max_halv, conv_rtol,
+                                                  per_refine_max, np, npfuncs)
+                    cum_steps += sm
+                    if cum_steps > total_budget:
+                        return _u(f"bounded refinement work exceeds max_total_steps ({total_budget})")
+                    if vm == "uncertain":
+                        return _u(f"bounded check uncertain at params={pov} init={iov}: {im['max_abs']}")
+                    crit_m = (vm == "bounded")
+                    if null_overrides:
+                        env_null = {**env_base, **null_parsed}
+                        vn, ino, sn = _bounded_observe(rhs_exprs, var_index, env_null, y0, n_steps, dt,
+                                                       plan["observable"], bound, t_end, max_halv, conv_rtol,
+                                                       per_refine_max, np, npfuncs)
+                        cum_steps += sn
+                        if cum_steps > total_budget:
+                            return _u(f"bounded refinement work exceeds max_total_steps ({total_budget})")
+                        if vn == "uncertain":
+                            return _u(f"bounded null-arm uncertain at params={pov}: {ino['max_abs']}")
+                        crit_n = (vn == "bounded")
+                        point_pass = bool(crit_m and not crit_n)
+                        detail.append({"params": pov, "init": iov, "bounded_mech": crit_m, "info_mech": im,
+                                       "bounded_null": crit_n, "info_null": ino, "discriminate": point_pass})
+                    else:
+                        point_pass = crit_m
+                        detail.append({"params": pov, "init": iov, "bounded": crit_m, "info": im})
+                    if point_pass:
+                        passes += 1
+                    continue
                 traj_m = _rk4_integrate(rhs_exprs, var_index, env_base, y0, n_steps, dt, np, npfuncs)
                 obs_m = _extract_observable(traj_m, var_index, plan["observable"], np)
                 crit_m = _eval_criterion(obs_m, plan["sim_criterion"])
-                if null_overrides:                      # discrimination: behavior present WITH, absent WITHOUT
+                if null_overrides:
                     env_null = {**env_base, **null_parsed}
                     traj_n = _rk4_integrate(rhs_exprs, var_index, env_null, y0, n_steps, dt, np, npfuncs)
                     obs_n = _extract_observable(traj_n, var_index, plan["observable"], np)
@@ -563,7 +604,12 @@ def _run_simulation(plan: dict) -> dict:
                     passes += 1
             frac = passes / gsize
             robust = frac >= rf
-            if null_overrides:
+            if is_bounded and null_overrides:
+                computed = f"bounded-discriminating: {passes}/{gsize} ({frac:.2f} >= {plan['robust_frac']})"
+            elif is_bounded:
+                kept = "bounded" if robust else "unbounded"
+                computed = f"{kept}: {passes}/{gsize} within bound ({frac:.2f} >= {plan['robust_frac']})"
+            elif null_overrides:
                 computed = f"discriminating: {passes}/{gsize} ({frac:.2f} >= {plan['robust_frac']})"
             else:
                 computed = f"robust: {passes}/{gsize} pass ({frac:.2f} >= {plan['robust_frac']})"
