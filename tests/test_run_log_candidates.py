@@ -13,6 +13,7 @@ import pytest
 from valagents import run_log
 from valagents.agents.grounder import ground_claim
 from valagents.web_search import Article
+from tests.fake_llm import FakeLLM
 from tests.test_grounding_support_agent import (
     CLAIM, FC, A_SUPPORT, A_SYNTH, A_CONTRA, _Backend, _llm, _cfg,
 )
@@ -94,3 +95,29 @@ async def test_grounder_marks_inadmissible_contradiction_unverified(tmp_path):
     assert disp["A3"] == "contradicts_unverified"
     assert rec["contradicted"] is False
     assert disp["A1"] == "uncited" and disp["A2"] == "uncited"
+
+
+async def test_ground_claim_records_query_block(tmp_path, monkeypatch):
+    # the planned query (rung/archives/rendered) is recorded alongside the pool, and the scoped
+    # query actually reaches the backend — closing "here's the query it ran, the pool, what it cited".
+    from valagents.web_search import ArxivBackend
+    run_log.bind(tmp_path / ".logs" / "run-q.jsonl")
+    queries = []
+    async def fake_search(self, query, max_results=10):
+        queries.append(query)
+        return [A_SUPPORT, A_SYNTH, A_CONTRA]               # 3 >= widen_min_results -> no widen
+    monkeypatch.setattr(ArxivBackend, "search", fake_search)
+
+    def router(agent, messages):
+        if agent == "query_planner":
+            return 'ARCHIVES: cond-mat | TERMS: "noise PSD", "temperature-independent", YbZn2GaO5'
+        return ("CLAIM: c1 | SUPPORT: uncertain | INDEPENDENT_SOURCES: 0 | BASIS: x\n"
+                "```json\n{\"citations\": []}\n```")
+    await ground_claim(CLAIM, FC, ArxivBackend(), FakeLLM(router), _cfg())
+
+    rec = json.loads((tmp_path / ".candidates" / "run-q.jsonl").read_text().splitlines()[0])
+    assert rec["query"]["rung"] == "scoped"
+    assert rec["query"]["archives"] == ["cond-mat"]
+    assert "cat:cond-mat*" in rec["query"]["rendered"] and rec["query"]["widened"] is False
+    assert any("cat:cond-mat*" in q for q in queries)       # the scoped query actually hit the backend
+    assert rec["candidates"][0]["title"]                    # pool (titles/URLs) still recorded — regression guard

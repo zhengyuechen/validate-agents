@@ -11,7 +11,7 @@ from valagents.agents.value_grounder import _extract_json
 from valagents.grounding import (
     _quote_admissible, _support_quote_valid, _retrieval_saturated_tokens, _norm,
 )
-from valagents.web_search import search_articles
+from valagents.agents.query_planner import planned_search
 from valagents import references, run_log
 
 
@@ -50,7 +50,8 @@ async def ground_claim(
     pass→uncertain downgrade. Code witnesses presence + on-property topicality + anti-fabrication — NOT
     entailment, NOT independence (the direction is the model's loud label). artifact.py is untouched.
     """
-    formatted, articles = await search_articles(backend, claim.statement)
+    formatted, articles, query_block = await planned_search(
+        backend, claim.statement, llm, cfg, context=formal_claim.statement)
     label_to_article = {f"A{i}": a for i, a in enumerate(articles, start=1)}
 
     user = GROUNDER_CLAIM.format(
@@ -116,7 +117,7 @@ async def ground_claim(
     # the gate never reads this.
     run_log.emit_candidates(
         claim.id, tick=tick, n_retrieved=len(articles), n_credited=independent_sources,
-        contradicted=contradicted,
+        contradicted=contradicted, query=query_block,
         candidates=[
             {"label": f"A{i}", "title": a.title, "url": a.url,
              "published": str(a.published)[:10], "disposition": disposition.get(f"A{i}", "uncited")}
@@ -145,7 +146,7 @@ async def ground_claim(
 
 async def ground_novelty(formal_claim: FormalClaim, backend, llm, cfg) -> Novelty | None:
     """Position a formal claim against closest prior art and return the novelty delta."""
-    formatted, _ = await search_articles(backend, formal_claim.statement)
+    formatted, _, _ = await planned_search(backend, formal_claim.statement, llm, cfg)
     user = GROUNDER_NOVELTY.format(formal=formal_claim.statement, articles=formatted or "(none)")
     tail = await checked(
         "grounder",
