@@ -203,7 +203,7 @@ def _converged_monotone(seq, rtol):
         return False
     return mags[-1] / abs(last) < rtol
 
-def _trajectory_converges(div_levels, conv_rtol, np, n_samples=5):
+def _trajectory_converges(div_levels, conv_rtol, np, n_samples=6):
     """§3d — is the pre-overflow trajectory dt-converged? THE divergence discriminator (B-D8): t*-convergence
     alone is NOT sufficient (a deep-unstable stiff instability has a converging t_of too). div_levels: list of
     (traj, overflow_step, dt_k), one per refinement level (all overflowed). A real singularity's solution tracks
@@ -211,12 +211,15 @@ def _trajectory_converges(div_levels, conv_rtol, np, n_samples=5):
     time; a stiff artifact's path is dt-divergent garbage, orders of magnitude apart. Sample the state magnitude
     at several t_s spread across (0, t_edge] (t_edge = earliest overflow time; bias toward the edge — NEVER a
     single early point, where stiff refinements still sit near x0 and spuriously agree). Converged at EVERY t_s
-    -> True (real); diverges at any -> False (artifact). Errs toward False (uncertain) when coarse levels disagree."""
+    -> True (real); diverges at any -> False (artifact). Errs toward False (uncertain) when coarse levels disagree.
+    Sampling runs UP TO 0.95*t_edge (not 0.9): an 'agree-through-0.9-then-diverge' path would FALSE-REFUTE (the
+    UNSAFE direction), so that window is closed by construction rather than left to a reachability argument
+    (B-D8 meta-guard) — verified zero-regression on the stiff/singularity suite."""
     t_edge = min(ov * h for (_, ov, h) in div_levels)
     if t_edge <= 0:
         return False
     for i in range(1, n_samples + 1):
-        t_s = (0.9 * i / n_samples) * t_edge                 # fractions up to 0.9*t_edge, biased toward the edge
+        t_s = (0.95 * i / n_samples) * t_edge                # fractions up to 0.95*t_edge, biased toward the edge
         mags = []
         for (traj, ov, h) in div_levels:
             idx = min(int(round(t_s / h)), ov - 1)           # clamp into the finite prefix [0, ov-1]

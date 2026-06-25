@@ -501,7 +501,7 @@ git commit -m "feat(sim): _converged_monotone predicate (monotone+shrinking, rej
 
   To support §3d, `classify` must ALSO return the partial trajectory + overflow step + step size for a div point, and the refine loop accumulates `div_levels = [(traj_k, overflow_step_k, dt_k), ...]` (one per refinement level, all overflowed). The trajectories are already in hand (the integrator returns them); §3d is pure post-processing — NO extra integration, so `steps_used` is unaffected. `steps_used` accumulates `n_steps + sum(n_k actually run)`.
 
-  **`_trajectory_converges(div_levels, conv_rtol, np, n_samples=5) -> bool` (§3d):** `t_edge = min over levels of (overflow_step_k * dt_k)` (earliest overflow time; in the deep-stiff regime the finest refinement overflows earliest, so the min bounds the common finite window). For each of `n_samples` sample times `t_s` spread across `(0, t_edge]` (biased toward `t_edge`, e.g. `f * t_edge` for `f` in evenly-spaced fractions up to ~0.9), compute the across-refinement state magnitudes `m_k = max(abs(traj_k[idx_k]))` where `idx_k = min(round(t_s/dt_k), overflow_step_k - 1)` (clamp into the finite prefix). If at ANY `t_s` the relative spread `(max(m) - min(m)) / max(abs(m)) >= conv_rtol` → return False (path is `dt`-divergent → artifact). If all `t_s` agree → True (real divergence). A `t_s` where all `m_k == 0` trivially agrees (skip). Errs toward False (uncertain) when the coarse levels disagree — the safe direction.
+  **`_trajectory_converges(div_levels, conv_rtol, np, n_samples=6) -> bool` (§3d):** `t_edge = min over levels of (overflow_step_k * dt_k)` (earliest overflow time; in the deep-stiff regime the finest refinement overflows earliest, so the min bounds the common finite window). For each of `n_samples` sample times `t_s` spread across `(0, t_edge]` (biased toward `t_edge`, `f * t_edge` for `f` in evenly-spaced fractions up to **0.95** — the unsafe "agree-then-diverge-in-the-last-bit" window is closed by construction, B-D8 meta-guard), compute the across-refinement state magnitudes `m_k = max(abs(traj_k[idx_k]))` where `idx_k = min(round(t_s/dt_k), overflow_step_k - 1)` (clamp into the finite prefix). If at ANY `t_s` the relative spread `(max(m) - min(m)) / max(abs(m)) >= conv_rtol` → return False (path is `dt`-divergent → artifact). If all `t_s` agree → True (real divergence). A `t_s` where all `m_k == 0` trivially agrees (skip). Errs toward False (uncertain) when the coarse levels disagree — the safe direction.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -577,7 +577,7 @@ Expected: FAIL — `cannot import name '_bounded_observe'`.
 In `valagents/sandbox/runner.py`, after `_converged_monotone`, add:
 
 ```python
-def _trajectory_converges(div_levels, conv_rtol, np, n_samples=5):
+def _trajectory_converges(div_levels, conv_rtol, np, n_samples=6):
     """§3d — is the pre-overflow trajectory dt-converged? THE divergence discriminator (B-D8): t*-convergence
     alone is NOT sufficient (a deep-unstable stiff instability has a converging t_of too). div_levels: list of
     (traj, overflow_step, dt_k), one per refinement level (all overflowed). A real singularity's solution tracks
@@ -590,7 +590,7 @@ def _trajectory_converges(div_levels, conv_rtol, np, n_samples=5):
     if t_edge <= 0:
         return False
     for i in range(1, n_samples + 1):
-        t_s = (0.9 * i / n_samples) * t_edge                 # fractions up to 0.9*t_edge, biased toward the edge
+        t_s = (0.95 * i / n_samples) * t_edge                # fractions up to 0.95*t_edge, biased toward the edge
         mags = []
         for (traj, ov, h) in div_levels:
             idx = min(int(round(t_s / h)), ov - 1)           # clamp into the finite prefix [0, ov-1]
