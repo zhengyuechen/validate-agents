@@ -196,7 +196,8 @@ def _bibtex_key(ref: Reference, number: int) -> str:
     return f"{first}{ref.year or number}"
 
 
-async def build_references(artifact, provided_path=None, resolver: Resolver | None = None) -> list[Reference]:
+async def build_references(artifact, provided_path=None, resolver: Resolver | None = None,
+                          asserted_refs: list[Reference] | None = None) -> list[Reference]:
     by_locator = {ref.locator: ref for ref in collect_retrieved(artifact)}
     if provided_path:
         resolver = resolver or DefaultResolver()
@@ -204,6 +205,8 @@ async def build_references(artifact, provided_path=None, resolver: Resolver | No
             if provided.locator in by_locator:
                 provided.cited_by = by_locator[provided.locator].cited_by
             by_locator[provided.locator] = provided
+    for asserted in (asserted_refs or []):                 # CA-D8: existing wins, never overwrite
+        by_locator.setdefault(normalize_id(asserted.locator), asserted)
 
     refs = sorted(by_locator.values(), key=lambda ref: (0 if ref.cited_by else 1, ref.locator))
     for number, ref in enumerate(refs, start=1):

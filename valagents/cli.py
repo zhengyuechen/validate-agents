@@ -6,16 +6,18 @@ import asyncio
 from pathlib import Path
 
 from valagents import run_log
+from valagents.citeaudit import CiteAuditor, audit_narrative_refs
 from valagents.config import load_config
 from valagents.llm import OpenRouterClient
 from valagents.references import (
     DefaultResolver,
     build_references,
     markers_for_claim,
+    normalize_id,
     to_bibtex,
 )
 from valagents.scheduler import run
-from valagents.web_search import build_backend
+from valagents.web_search import ArxivBackend, build_backend
 
 
 LIMIT = (
@@ -161,7 +163,24 @@ def _render_claims_block(lines: list, art, refs: list) -> None:
         lines.append("")
 
 
-def _render_supporting_layer(lines: list, art) -> None:
+_UNVERIFIED_GLOSS = "_`[unverified]` = not resolved to a catalogued record; not a claim of fabrication._"
+
+
+def _cite_marker(name: str, audit_map: dict, num_by_loc: dict) -> str:
+    """Inline marker for a narrative reference name. '' when CiteAudit is off or the name isn't in scope."""
+    res = (audit_map or {}).get(name)
+    if res is None:
+        return ""
+    if res.status == "resolved" and res.reference is not None:
+        ref = res.reference
+        n = num_by_loc.get(normalize_id(ref.locator))
+        who = f"{ref.authors[0]} et al. " if ref.authors else ""
+        marker = f" — {ref.title}, {who}{ref.year} ({ref.url}) ✓"
+        return marker + (f" [{n}]" if n else "")
+    return " [unverified]"
+
+
+def _render_supporting_layer(lines: list, art, audit_map, num_by_loc) -> None:
     """Block 5: completion, theory bridge, positioning, known limits, predictions."""
     if art.completion:
         lines += [
@@ -199,13 +218,16 @@ def _render_supporting_layer(lines: list, art) -> None:
         pos = art.prior_art_positioning
         lines += [
             "## Prior-Art Positioning",
-            f"**Closest prior:** {pos.closest_prior}",
+            f"**Closest prior:** {pos.closest_prior}{_cite_marker(pos.closest_prior, audit_map, num_by_loc)}",
             f"**Similarity:** {pos.similarity}",
             f"**Difference:** {pos.difference}",
             f"**What is new:** {pos.what_is_new}",
-            f"**Must cite/discuss:** {', '.join(pos.must_cite) or 'none'}",
+            "**Must cite/discuss:** " + (
+                ", ".join(m + _cite_marker(m, audit_map, num_by_loc) for m in pos.must_cite) or "none"),
             "",
         ]
+        if audit_map and any(r.status == "unverified" for r in audit_map.values()):
+            lines += [_UNVERIFIED_GLOSS, ""]
     if art.known_limits:
         lines.append("## Known Limits")
         for item in art.known_limits:
@@ -225,8 +247,9 @@ def _render_supporting_layer(lines: list, art) -> None:
         lines.append("")
 
 
-def render_report(art, refs=None) -> str:
+def render_report(art, refs=None, audit_map=None) -> str:
     refs = refs or []
+    num_by_loc = {normalize_id(r.locator): r.number for r in refs}
     blocker = art.blocker or {}
     vc = art.verdict_class
     gloss = _VERDICT_GLOSS.get(vc, vc)
@@ -245,7 +268,7 @@ def render_report(art, refs=None) -> str:
     _render_claims_block(lines, art, refs)
 
     # 5. Completion & positioning (supporting layer, now below the crux)
-    _render_supporting_layer(lines, art)
+    _render_supporting_layer(lines, art, audit_map, num_by_loc)
 
     # 6. References
     if refs:
@@ -267,6 +290,7 @@ async def run_cli(
     out_dir=None,
     references_path=None,
     resolver=None,
+    citeauditor=None,
     run_id=None,
 ) -> dict:
     out = Path(out_dir or cfg.results_dir)
@@ -275,13 +299,15 @@ async def run_cli(
     run_log.bind(out / ".logs" / f"{slug}.jsonl")
 
     art = await run(seed, llm, cfg, backend=backend)
-    refs = await build_references(art, references_path, resolver)
+    audit_map = await audit_narrative_refs(art, citeauditor)
+    asserted = [r.reference for r in audit_map.values() if r.status == "resolved" and r.reference]
+    refs = await build_references(art, references_path, resolver, asserted_refs=asserted)
 
     json_path = out / f"{slug}.json"
     report_path = out / f"{slug}.md"
     bib_path = out / f"{slug}.bib"
     json_path.write_text(art.model_dump_json(indent=2))
-    report_path.write_text(render_report(art, refs))
+    report_path.write_text(render_report(art, refs, audit_map))
     bib_path.write_text(to_bibtex(refs))
     return {
         "artifact": art,
@@ -300,6 +326,7 @@ def main() -> None:
 
     cfg = load_config(args.config)
     resolver = DefaultResolver() if args.references else None
+    citeauditor = CiteAuditor(ArxivBackend(), cfg=cfg)
     out = asyncio.run(
         run_cli(
             args.seed,
@@ -308,6 +335,7 @@ def main() -> None:
             backend=build_backend(cfg),
             references_path=args.references,
             resolver=resolver,
+            citeauditor=citeauditor,
         )
     )
     print(f"status: {out['artifact'].status} -> {out['report_path']}")
