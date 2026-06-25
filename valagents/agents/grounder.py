@@ -12,7 +12,7 @@ from valagents.grounding import (
     _quote_admissible, _support_quote_valid, _retrieval_saturated_tokens, _norm,
 )
 from valagents.web_search import search_articles
-from valagents import references
+from valagents import references, run_log
 
 
 def _extract_label(token: str) -> str | None:
@@ -77,6 +77,7 @@ async def ground_claim(
     passing: list = []
     contradicted = False
     contradiction_quote = ""
+    disposition: dict[str, str] = {}                                 # per-label audit: what happened to each cited article
     for c in citations:
         if not isinstance(c, dict):
             continue
@@ -91,10 +92,16 @@ async def ground_claim(
                 contradicted = True
                 if not contradiction_quote:
                     contradiction_quote = quote
+                disposition[label] = "contradicts"
+            else:
+                disposition.setdefault(label, "contradicts_unverified")
         elif direction == "supports":
             if _support_quote_valid(quote, art.summary, claim.statement,
                                     subject_tokens, g.quote_min_tokens):
                 passing.append(art)
+                disposition[label] = "credited"
+            else:
+                disposition.setdefault(label, "quote_failed")
 
     deduped = _dedup_articles(passing)
     code_witnessed = min(len(deduped), len(articles))               # §7 code cap (cannot exceed retrieval)
@@ -102,6 +109,20 @@ async def ground_claim(
     verdict = map_support_to_verdict(tail["support"], independent_sources)
     if contradicted and verdict == "pass":                          # §6 contradiction guard (force-downgrade)
         verdict = "uncertain"
+
+    # Audit trail (run_log .candidates, fail-soft): the FULL retrieved pool + each article's disposition —
+    # what the grounder SURVEYED vs cited, incl. rejected (quote_failed) and contradicting papers. The
+    # retrieved pool otherwise lived only in the prompt at runtime and was unrecoverable. Diagnostic only;
+    # the gate never reads this.
+    run_log.emit_candidates(
+        claim.id, tick=tick, n_retrieved=len(articles), n_credited=independent_sources,
+        contradicted=contradicted,
+        candidates=[
+            {"label": f"A{i}", "title": a.title, "url": a.url,
+             "published": str(a.published)[:10], "disposition": disposition.get(f"A{i}", "uncited")}
+            for i, a in enumerate(articles, start=1)
+        ],
+    )
 
     srcs = [Source(locator=a.url, title=a.title, url=a.url, year=str(a.published)[:4], relation="independent")
             for a in deduped]

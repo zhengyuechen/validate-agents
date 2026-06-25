@@ -27,6 +27,13 @@ def agent_outputs_path(results_base: str, run_id: str) -> Path:
     return Path(results_base) / ".agent_outputs" / f"{run_id}.jsonl"
 
 
+def candidates_path(results_base: str, run_id: str) -> Path:
+    """Per-run grounder candidate-pool audit log: the FULL set of articles retrieved per claim and each
+    one's disposition (credited / quote_failed / contradicts / uncited) — the auditable record of what
+    the grounder surveyed vs cited, including rejected and contradicting papers."""
+    return Path(results_base) / ".candidates" / f"{run_id}.jsonl"
+
+
 class RunLogger:
     def __init__(self, path) -> None:
         self.path = str(path)
@@ -34,9 +41,12 @@ class RunLogger:
         p = Path(self.path)
         if p.parent.name == ".logs":
             self.agent_output_path = str(p.parent.parent / ".agent_outputs" / p.name)
+            self.candidate_path = str(p.parent.parent / ".candidates" / p.name)
         else:
             self.agent_output_path = str(p.with_suffix(p.suffix + ".agent_outputs"))
+            self.candidate_path = str(p.with_suffix(p.suffix + ".candidates"))
         Path(self.agent_output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.candidate_path).parent.mkdir(parents=True, exist_ok=True)
 
     def emit(self, event: str, **fields) -> None:
         rec = {"time": datetime.now().isoformat(timespec="seconds"), "event": event, **fields}
@@ -46,6 +56,11 @@ class RunLogger:
     def emit_agent_output(self, agent: str, **fields) -> None:
         rec = {"time": datetime.now().isoformat(timespec="seconds"), "agent": agent, **fields}
         with open(self.agent_output_path, "a") as f:
+            f.write(json.dumps(rec, default=str) + "\n")
+
+    def emit_candidates(self, claim_id: str, **fields) -> None:
+        rec = {"time": datetime.now().isoformat(timespec="seconds"), "claim": claim_id, **fields}
+        with open(self.candidate_path, "a") as f:
             f.write(json.dumps(rec, default=str) + "\n")
 
 
@@ -75,6 +90,17 @@ def emit_agent_output(agent: str, **fields) -> None:
     try:
         logger.emit_agent_output(agent, **fields)
     except Exception:  # output capture must never break a run
+        pass
+
+
+def emit_candidates(claim_id: str, **fields) -> None:
+    """Append a grounder candidate-pool record (full retrieved set + dispositions), if a logger is bound."""
+    logger = _current.get()
+    if logger is None:
+        return
+    try:
+        logger.emit_candidates(claim_id, **fields)
+    except Exception:  # audit capture must never break a run
         pass
 
 
