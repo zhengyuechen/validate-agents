@@ -1,0 +1,41 @@
+{
+  "raw_idea": "Quantum mechanics is missing a meta-symmetry; requiring the theory to respect it uniquely fixes an operator 𝒯̂ and, through a Hawking-type exponential map, derives the functional form of the cosmological dark-energy density ρ_Λ — its form derived, its magnitude fixed empirically — a structure not captured by Born reciprocity or existing phase-space formulations of quantum mechanics.",
+  "formal_claim": {
+    "statement": "There exists a meta-symmetry principle M, not reducible to Born reciprocity or existing phase-space QM formulations, such that imposing M on the quantum-mechanical formalism uniquely determines an operator 𝒯̂, and a Hawking-type exponential map applied to 𝒯̂ yields the functional form of the cosmological dark-energy density ρ_Λ (with its magnitude fixed empirically rather than derived).",
+    "variables": [
+      "M ranges over candidate symmetry constraints on the QM operator algebra; 𝒯̂ ranges over operators on the system's Hilbert space / observable algebra; exp_H(·) ranges over exponential maps from operators to cosmological density functionals; ρ_Λ ranges over functional forms of the dark-energy density in terms of cosmological parameters; C = {Born reciprocity",
+      "existing phase-space QM formulations} is the comparison class for non-equivalence."
+    ],
+    "scope": "",
+    "regime": "Standard quantum-mechanical formalism (Hilbert space, operator algebra, Born rule) extended by a putative meta-symmetry; cosmological dark-energy sector where ρ_Λ is an observable density; assumes a well-defined exponential map bridging operator algebra to cosmological density; boundary condition: the magnitude of ρ_Λ is set by empirical observation, only its functional form is derived; scale: from quantum operator level to cosmological density level.",
+    "falsifiable": false
+  },
+  "faithfulness": null,
+  "coverage": null,
+  "claim_graph": [],
+  "derivation": null,
+  "novelty": null,
+  "completion": null,
+  "theory_bridge": null,
+  "prior_art_positioning": null,
+  "known_limits": [],
+  "convincing_case": null,
+  "predictions": [],
+  "attacks": [],
+  "attack_surface": null,
+  "validation_plan": null,
+  "version_id": 0,
+  "parent_version": null,
+  "repairs_spent": 0,
+  "repair_cap": 3,
+  "min_attack_categories": 2,
+  "fanout_N": 2,
+  "finalized": true,
+  "status": "needs_experiment",
+  "blocker": {
+    "claim_id": null,
+    "reason": "not_falsifiable"
+  },
+  "load_bearing": null,
+  "maturity": 0.0
+}

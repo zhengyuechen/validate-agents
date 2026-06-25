@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "computed": "margin=4",
+  "matched": "confirm",
+  "stdout": "{\"ok\": true, \"computed\": \"margin=4\", \"matched\": \"confirm\"}",
+  "stderr": "",
+  "error": "",
+  "resource_use": {
+    "wall_s": 0.204
+  },
+  "artifacts_path": ""
+}

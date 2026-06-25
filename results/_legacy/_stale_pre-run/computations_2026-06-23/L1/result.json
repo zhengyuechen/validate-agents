@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "computed": "0",
+  "matched": "refute",
+  "stdout": "{\"ok\": true, \"computed\": \"0\", \"matched\": \"refute\"}",
+  "stderr": "",
+  "error": "",
+  "resource_use": {
+    "wall_s": 0.209
+  },
+  "artifacts_path": ""
+}

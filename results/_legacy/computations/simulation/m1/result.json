@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "computed": "unbounded: 0/5 within bound (0.00 >= 1)",
+  "matched": "refute",
+  "stdout": "{\"ok\": true, \"computed\": \"unbounded: 0/5 within bound (0.00 >= 1)\", \"matched\": \"refute\", \"detail\": [{\"params\": {\"a\": 0.8}, \"init\": {}, \"bounded\": false, \"info\": {\"max_abs\": \"diverged\", \"t_star\": 1.00025, \"refinements\": 3}}, {\"params\": {\"a\": 0.9}, \"init\": {}, \"bounded\": false, \"info\": {\"max_abs\": \"diverged\", \"t_star\": 1.00025, \"refinements\": 3}}, {\"params\": {\"a\": 1.0}, \"init\": {}, \"bounded\": false, \"info\": {\"max_abs\": \"diverged\", \"t_star\": 1.00025, \"refinements\": 3}}, {\"params\": {\"a\": 1.1}, \"init\": {}, \"bounded\": false, \"info\": {\"max_abs\": \"diverged\", \"t_star\": 1.00025, \"refinements\": 3}}, {\"params\": {\"a\": 1.2}, \"init\": {}, \"bounded\": false, \"info\": {\"max_abs\": \"diverged\", \"t_star\": 1.00025, \"refinements\": 3}}]}",
+  "stderr": "",
+  "error": "",
+  "resource_use": {
+    "wall_s": 1.27
+  },
+  "artifacts_path": ""
+}
