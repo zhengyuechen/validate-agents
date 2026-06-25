@@ -74,20 +74,26 @@ class ComputationVerdict(BaseModel):
     result: ComputationResult
 
 
-def verdict_to_check(v: "ComputationVerdict", tick: int = 0):
+def verdict_to_check(v: "ComputationVerdict", tick: int = 0, grounding=None):
     """Map an executed ComputationVerdict to a CheckRecord(lens='executor'). No LLM (F3).
-    Kind-aware: a bound_check (magnitude) surfaces bound/bound_source; a symbolic limit
-    surfaces expected/expected_source."""
+    Magnitude-bound_check: independent_sources comes ONLY from grounding-supports (the LLM-bound_source
+    say-so auto-credit is STRIPPED, G-D6/G-D10). Symbolic: unchanged (indep = 1 on pass)."""
     from valagents.artifact import CheckRecord, Source
-    indep = 1 if v.verdict == "pass" else 0
     if v.plan.kind == "magnitude" and v.plan.comparison_kind == "bound_check":
+        supported = grounding is not None and getattr(grounding, "status", None) == "supports"
+        indep = 1 if supported else 0
+        gnote = ""
+        if grounding is not None:
+            gnote = f"; grounding={grounding.status}" + (f" (quote: {grounding.quote})" if grounding.quote else "")
         basis = (f"computed {v.measured or '?'}; bound = {v.plan.bound} "
-                 f"(source: {v.plan.bound_source or 'n/a'}); matched = {v.result.matched}")
-        src = v.plan.bound_source
-    else:
-        basis = (f"computed limit = {v.measured or '?'}; expected = {v.plan.expected} "
-                 f"(source: {v.plan.expected_source or 'n/a'}); matched = {v.result.matched}")
-        src = v.plan.expected_source
+                 f"(source: {v.plan.bound_source or 'n/a'}); matched = {v.result.matched}{gnote}")
+        sources = [Source(locator=v.plan.bound_source, relation="independent")] if supported else []
+        return CheckRecord(lens="executor", verdict=v.verdict, basis=basis,
+                           independent_sources=indep, sources=sources, tick=tick)
+    indep = 1 if v.verdict == "pass" else 0
+    basis = (f"computed limit = {v.measured or '?'}; expected = {v.plan.expected} "
+             f"(source: {v.plan.expected_source or 'n/a'}); matched = {v.result.matched}")
+    src = v.plan.expected_source
     sources = ([Source(locator=src, relation="independent")] if src else [])
     return CheckRecord(lens="executor", verdict=v.verdict, basis=basis,
                        independent_sources=indep, sources=sources, tick=tick)

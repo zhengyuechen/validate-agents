@@ -155,7 +155,7 @@ def _apply_repair_statements(art: IdeaArtifact, repaired: dict | None, targets: 
             claim.statement = new_statements[claim.id]
 
 
-async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config, tick: int) -> None:
+async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config, tick: int, resolver=None) -> None:
     art = store.current
     if art.formal_claim is None:
         return
@@ -239,7 +239,7 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
                 "claim": claim_id,
                 "verdict": record.verdict,
             })
-    await run_magnitude_checks(store, llm, cfg, tick=tick + 500)
+    await run_magnitude_checks(store, llm, cfg, tick=tick + 500, resolver=resolver)
     await run_simulation_checks(store, llm, cfg, tick=tick + 700)
     plan = await design_validation(art, llm, cfg)
     store.set("validation_plan", plan)
@@ -251,7 +251,7 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
         })
 
 
-async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
+async def run_magnitude_checks(store, llm, cfg, tick: int = 0, resolver=None) -> None:
     art = store.current
     # L2-D11: drop prior bound_check claims (and their checks) before re-injecting, so repeated runs
     # across repair iterations do not accumulate duplicate bound claims (mirrors red_team overwriting attacks).
@@ -265,12 +265,17 @@ async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
             continue
         from valagents.sandbox.executor import run_plan
         from valagents.computation import verdict_to_attack, verdict_to_check
+        from valagents.agents.value_grounder import ground_plan
         adir = f"{cfg.results_dir}/computations/magnitude" if getattr(cfg, "results_dir", None) else None
         verdict = run_plan(plan, cfg, artifacts_dir=adir)
         store.record({"event": "magnitude_executed", "kind": plan.comparison_kind,
                       "verdict": verdict.verdict, "computed": verdict.measured})
         if verdict.verdict == "uncertain":
             continue                                  # FAIL-CLOSED: no attack, no claim, no attempted-mark (L2-D9/F2)
+        grounding = await ground_plan(plan, resolver, llm, cfg)   # None iff grounding OFF
+        if grounding is not None and grounding.status == "contradicts":
+            store.record({"event": "magnitude_grounding", "kind": plan.comparison_kind, "status": "contradicts"})
+            continue                                               # suppress: input is literature-contradicted
         if plan.comparison_kind == "bound_check":
             # CLAIM path: inject a load-bearing mathematical claim; violate -> fail -> REFUTED, comply -> pass.
             bn += 1
@@ -285,12 +290,14 @@ async def run_magnitude_checks(store, llm, cfg, tick: int = 0) -> None:
                 statement=(f"The idea's predicted effect respects the established bound "
                            f"({plan.bound}, source: {plan.bound_source})."))
             art.claim_graph.append(claim)
-            store.add_check(claim_id, verdict_to_check(verdict, tick=tick))
+            store.add_check(claim_id, verdict_to_check(verdict, tick=tick, grounding=grounding))
             claim.exhausted = True
             tick += 1
             continue
-        # ATTACK path (sensitivity_ratio): decisive verdict -> Attack + mark "magnitude" attempted.
+        # ATTACK path (sensitivity_ratio / discriminating_margin): decisive verdict -> Attack + mark "magnitude" attempted.
         attack = verdict_to_attack(verdict, plan.target_claim_id, plan.discriminating, tick=tick)
+        if grounding is not None and grounding.quote:
+            attack = attack.model_copy(update={"basis": attack.basis + f"; grounding={grounding.status} (quote: {grounding.quote})"})
         art.attacks = art.attacks + [attack]
         if art.attack_surface is not None and "magnitude" not in art.attack_surface.attempted:
             art.attack_surface.attempted = art.attack_surface.attempted + ["magnitude"]
@@ -382,8 +389,13 @@ async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
     if not await run_entry_gates(store, raw_idea, backend, llm, cfg):
         return store.current
 
+    resolver = None
+    if cfg.grounding.backend != "none":
+        from valagents.agents.value_grounder import LiveFetcher
+        resolver = LiveFetcher()
+
     await run_claim_checks(store, backend, llm, cfg)
-    await _whole_artifact_lenses(store, backend, llm, cfg, tick=1000)
+    await _whole_artifact_lenses(store, backend, llm, cfg, tick=1000, resolver=resolver)
     await inject_limit_checks(store, llm, cfg, tick=1500)
 
     while store.current.repairs_spent < cfg.gate.repair_cap:
@@ -399,7 +411,7 @@ async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
 
         version = store.current.version_id
         await run_claim_checks(store, backend, llm, cfg, tick0=2000 * version)
-        await _whole_artifact_lenses(store, backend, llm, cfg, tick=3000 * version)
+        await _whole_artifact_lenses(store, backend, llm, cfg, tick=3000 * version, resolver=resolver)
 
     store.current.finalized = True
     verdict = await arbitrate(store.current, llm, cfg)

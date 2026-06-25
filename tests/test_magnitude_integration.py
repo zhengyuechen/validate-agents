@@ -80,11 +80,14 @@ async def test_bound_violation_injects_failed_claim_and_refutes():
     assert s.current.status == "refuted"
 
 async def test_bound_compliance_injects_passing_sourced_claim():
+    # Say-so strip (G-D6/G-D10): with resolver=None (grounding off), the BND claim is injected and
+    # passes the executor check, but independent_sources == 0 — bound_source alone no longer clears
+    # _has_independent_external_check. This is the intended correction, not a regression.
     s = store_with_prediction(discriminates=True)
     await run_magnitude_checks(s, router(BOUND_OK), cfg())
     bnd = [c for c in s.current.claim_graph if c.origin == "bound_check"]
-    assert bnd and bnd[0].status == "pass"
-    assert s.current._has_independent_external_check(bnd[0])   # bound_source counts as the external check
+    assert bnd and bnd[0].checks[0].verdict == "pass"           # executor still confirms compliance
+    assert not s.current._has_independent_external_check(bnd[0])  # stripped: no grounding -> no credit
 
 async def test_bound_check_does_not_mark_magnitude_attempted():    # L2-D9: claim path, not an attack
     s = store_with_prediction(discriminates=True)

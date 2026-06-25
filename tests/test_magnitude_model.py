@@ -47,10 +47,12 @@ def _bound_verdict(matched):
     return v
 
 def test_bound_check_pass_is_independent_sourced_executor_check():
+    # Say-so strip (G-D6/G-D10): bound_source alone no longer earns independent_sources credit.
+    # With grounding=None (off), independent_sources == 0; the basis still carries the loud source.
     rec = verdict_to_check(_bound_verdict("confirm"))
     assert rec.lens == "executor" and rec.verdict == "pass"
-    assert rec.independent_sources == 1 and rec.sources and rec.sources[0].locator == "PDG2024"
-    assert "PDG2024" in rec.basis and "bound" in rec.basis        # loud source
+    assert rec.independent_sources == 0 and rec.sources == []     # stripped: grounding=None
+    assert "PDG2024" in rec.basis and "bound" in rec.basis        # loud source still in basis
 
 def test_bound_check_fail_maps_to_fail_check():
     rec = verdict_to_check(_bound_verdict("refute"))
