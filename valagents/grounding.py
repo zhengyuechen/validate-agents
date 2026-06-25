@@ -94,6 +94,38 @@ def _quote_valid(quote: str, fetched_text: str, extracted_value: float,
     return True
 
 
+# --- Tier-2 (§4): admissibility gate shared by BOTH citation directions (anti-fab + sentence-bound + substantial).
+# Split on sentence-ending punctuation followed by whitespace + a capital letter. '0.5 K' (no space after the
+# '.') and 'e.g. the' (lowercase after) do NOT split — abbreviation/decimal tolerance.
+_SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [s for s in _SENT_SPLIT_RE.split(text or "") if s.strip()]
+
+
+def _sentence_bounded(quote: str, source_text: str) -> bool:
+    """True iff the normalized quote lies within a single sentence of source_text — kills the cross-sentence
+    splice inversion ('...no order is observed. The lattice...' → 'order is observed. The lattice')."""
+    nq = _norm(quote)
+    if not nq:
+        return False
+    return any(nq in _norm(sent) for sent in _split_sentences(source_text))
+
+
+def _quote_admissible(quote: str, source_text: str, min_tokens: int) -> bool:
+    """§4 shared gate (BOTH directions): the quote is a real, single-sentence, substantial passage of
+    source_text. Anti-fabrication + sentence-bounded + substantial. Does NOT judge direction or property."""
+    nq = _norm(quote)
+    if not nq or nq not in _norm(source_text):       # anti-fabrication (both sides _norm'd)
+        return False
+    if not _sentence_bounded(quote, source_text):    # no cross-sentence splice
+        return False
+    if len(nq.split()) < min_tokens:                 # substantial
+        return False
+    return True
+
+
 # The conditions parser's OWN ladders (G-D5b/F3) — NEVER SCALE_TABLE (whose K is energy-via-k_B, T is Tesla).
 # N1: µk key uses GREEK MU (U+03BC) — the post-NFKC form that _norm produces from both MICRO SIGN and GREEK MU.
 _TEMP_UNITS = {"k": 1.0, "mk": 1e-3, "μk": 1e-6, "uk": 1e-6, "kelvin": 1.0, "millikelvin": 1e-3}
