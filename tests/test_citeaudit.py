@@ -1,4 +1,11 @@
-from valagents.citeaudit import _title_match, _crossref_candidates, _Candidate
+import pytest
+
+from valagents.citeaudit import (
+    _title_match, _crossref_candidates, _Candidate,
+    CiteResult, CiteAuditor, audit_narrative_refs,
+)
+from valagents.config import Config
+from valagents.artifact import IdeaArtifact, PriorArtPositioning
 
 
 def test_title_match_requires_all_tokens():
@@ -45,12 +52,6 @@ def test_crossref_candidates_parse():
 def test_crossref_candidates_empty():
     assert _crossref_candidates({}) == []
     assert _crossref_candidates({"message": {"items": []}}) == []
-
-
-import pytest
-from valagents.citeaudit import CiteResult, CiteAuditor, audit_narrative_refs
-from valagents.config import Config
-from valagents.artifact import IdeaArtifact, PriorArtPositioning
 
 
 def _cfg():
