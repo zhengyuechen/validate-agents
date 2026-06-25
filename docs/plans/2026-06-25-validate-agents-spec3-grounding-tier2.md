@@ -211,23 +211,25 @@ def test_support_quote_guard2_property_all_subject():
         "the noise PSD of YbZn2GaO5", "noise PSD", {"ybzn2gao5", "psd", "noise"}, 6) is False
 
 
-def test_support_quote_thin_corpus_union_closes_leak():
-    # THE THIN-CORPUS PROBE (§10). The model emits a property that SMUGGLES the subject formula
-    # ('YbZn2GaO5 temperature-independent'). On a thin corpus the formula is in only 1 of 3 abstracts,
-    # so saturation-alone does NOT subtract it → it survives in prop_distinctive → a formula-only quote
-    # FALSELY passes (the leak). The UNION (subject_phrase carries 'ybzn2gao5') subtracts it → fails.
-    arts = [_Art("ybzn2gao5 noise psd temperature-independent below 1 k"),
-            _Art("unrelated spin liquid candidate magnetization"),
-            _Art("another frustrated magnet heat capacity")]
-    saturated = _retrieval_saturated_tokens(arts, 0.6)        # 'ybzn2gao5' in 1/3 → NOT saturated → {} here
-    assert "ybzn2gao5" not in saturated
-    leaky_prop = "YbZn2GaO5 temperature-independent"          # property smuggles the subject formula (⊆ CLAIM)
-    formula_only = "single crystals of YbZn2GaO5 were grown by floating zone in this study here"
-    # saturation-alone: the formula survives in prop_distinctive → formula-only quote PASSES (the leak)
-    assert _support_quote_valid(formula_only, formula_only, CLAIM, leaky_prop, saturated, 6) is True
-    # UNION: subject_phrase subtracts 'ybzn2gao5' → quote is off the distinctive property → FAILS (leak closed)
-    union = saturated | _content_tokens("YbZn2GaO5 noise PSD")
-    assert _support_quote_valid(formula_only, formula_only, CLAIM, leaky_prop, union, 6) is False
+def test_support_quote_compound_fragment_rejected():
+    # T2-D11 CRITICAL regression: a compound property ('temperature-independent' → {temperature, independent})
+    # must NOT be credited by a quote sharing only ONE fragment. require-ALL closes this; any-overlap leaked.
+    off_observable = "The magnetization shows strong temperature variation across the measured range here"   # only 'temperature'
+    unrelated_sense = "The reported results were independent of the specific growth batch used here today"     # only 'independent'
+    genuine = "We report the noise PSD is temperature-independent below 1 K in this material here"            # both
+    assert _support_quote_valid(off_observable, off_observable, CLAIM, PROP, SUBJ_UNION, 6) is False
+    assert _support_quote_valid(unrelated_sense, unrelated_sense, CLAIM, PROP, SUBJ_UNION, 6) is False
+    assert _support_quote_valid(genuine, genuine, CLAIM, PROP, SUBJ_UNION, 6) is True
+
+
+def test_support_quote_subject_subtraction_aids_recall():
+    # Under require-ALL the subject subtraction is a RECALL aid: a genuine quote stating the full distinctive
+    # property but OMITTING the subject formula still passes once the subject is subtracted; without
+    # subtraction the same quote false-rejects (it would be forced to restate 'ybzn2gao5').
+    leaky_prop = "YbZn2GaO5 temperature-independent"                       # property names the subject too (⊆ CLAIM)
+    genuine = "the noise PSD is temperature-independent below 1 K in this material"   # omits 'YbZn2GaO5'
+    assert _support_quote_valid(genuine, genuine, CLAIM, leaky_prop, set(), 6) is False          # no subtraction → forced to restate subject → reject
+    assert _support_quote_valid(genuine, genuine, CLAIM, leaky_prop, {"ybzn2gao5"}, 6) is True   # subject subtracted → {temperature, independent} both present → pass
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -258,30 +260,35 @@ def _retrieval_saturated_tokens(articles, frac: float) -> set[str]:
 
 def _support_quote_valid(quote: str, source_text: str, claim_statement: str, asserted_property: str,
                          subject_tokens: set[str], min_tokens: int) -> bool:
-    """§4/§5 supports-only gate = _quote_admissible AND the on-property floor. `subject_tokens` is the
-    caller-formed UNION (retrieval-saturated ∪ LLM subject_phrase tokens). Witnesses on-property topicality,
-    NOT entailment — a polarity flip carrying the distinctive word passes; direction stays the model's label."""
+    """§4/§5 supports-only gate = _quote_admissible AND the on-property floor. The quote must contain
+    EVERY distinctive property token (require-ALL, not any) — a compound property like
+    'temperature-independent' tokenizes to {temperature, independent}; requiring only one fragment lets an
+    off-property quote ('temperature variation' of a different observable; 'independent' in an unrelated
+    sense) earn credit (the T2-D11 false-credit). `subject_tokens` is the caller-formed union
+    (retrieval-saturated ∪ subject_phrase); subtracting it is now a RECALL aid (don't force the quote to
+    restate the subject), not the soundness mechanism. Witnesses on-property topicality, NOT entailment —
+    a polarity flip carrying the full property phrase passes; direction stays the model's label."""
     if not _quote_admissible(quote, source_text, min_tokens):
         return False
     prop = _content_tokens(asserted_property)
     if not prop <= _content_tokens(claim_statement):       # Guard 1: property must be claim-derived
         return False
-    prop_distinctive = prop - subject_tokens               # subtract the union subject
+    prop_distinctive = prop - subject_tokens               # subtract subject (recall aid, not soundness)
     if not prop_distinctive:                               # Guard 2: non-vacuous
         return False
-    return bool(_content_tokens(quote) & prop_distinctive)  # on-property overlap
+    return prop_distinctive <= _content_tokens(quote)      # require ALL distinctive tokens (T2-D11)
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `conda run -n cosci-reproduce python -m pytest tests/test_grounding_support.py -q`
-Expected: PASS (14 passed — 7 from Task 1 + 7 new).
+Expected: PASS (15 passed — 7 from Task 1 + 8 new).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add valagents/grounding.py tests/test_grounding_support.py
-git commit -m "grounding tier-2: on-property floor with union subject subtractor (thin-corpus fix)"
+git commit -m "grounding tier-2: on-property floor (require-ALL distinctive tokens, union subject subtractor)"
 ```
 
 ---
@@ -753,17 +760,17 @@ git commit -m "grounding tier-2: code-witnessed grounder support (citations JSON
 **1. Spec coverage** (spec §1–§12):
 - §3 pipeline (citations JSON, subject_subtract union, per-citation gate, code cap, min(llm,code), contradiction guard) → Task 3 Step 5. ✓
 - §4 shared `_quote_admissible` + supports-only `_support_quote_valid` → Tasks 1, 2. ✓
-- §5 property floor + UNION subtractor + `_retrieval_saturated_tokens` + Guards 1/2 + thin-corpus fix → Task 2. ✓
+- §5 property floor (**require-ALL distinctive tokens**, T2-D11) + subject subtractor (recall aid) + `_retrieval_saturated_tokens` + Guards 1/2 → Task 2. ✓
 - §6 contradiction guard (admissible-only, force pass→uncertain, CONTRADICTION: basis) → Task 3 Step 5 + `test_contradiction_guard_forces_uncertain_not_pass`. ✓
 - §7 dedup (`normalize_id`/title) + code cap + min(llm,code) → Task 3 `_dedup_articles` + `test_dedup_preprint_and_published_count_once`. ✓
 - §8 honest rename (documentation/basis, field name unchanged) → basis suffix in Task 3 Step 5 (gated `independent_sources >= 1`) + `test_pass_basis_carries_honest_boundary`; `relation="independent"` kept (no schema change). The honest boundary now lives in the artifact a human reads, not just docstrings. ✓
 - §9 fail-closed + gate purity (`artifact.py` / `map_support_to_verdict` untouched) → Global Constraints + `test_gate_purity_pass_requires_independent_at_least_one` + `test_backend_off_uncertain`. ✓
-- §10 tests incl. thin-corpus probe + co-saturation fail-closed → Task 2 `test_support_quote_thin_corpus_union_closes_leak` (uses a *leaky* property — `asserted_property` smuggling the subject formula — so it genuinely exercises saturation-alone=pass vs union=fail), Task 3 `test_thin_corpus_formula_leak_uncertain`; co-saturation recall-drop is covered by Guard 2 (`test_support_quote_guard2_property_all_subject`). ✓
+- §10 tests: compound-fragment false-credit regression (T2-D11) → Task 2 `test_support_quote_compound_fragment_rejected`; subject-subtraction-as-recall → `test_support_quote_subject_subtraction_aids_recall`; thin-corpus formula-leak → Task 3 `test_thin_corpus_formula_leak_uncertain` (now closed by require-ALL); co-saturation fail-closed → Guard 2 (`test_support_quote_guard2_property_all_subject`). ✓
 - §12 slices 1 (pure gate+floor) / 2 (agent wiring) → Tasks 1+2 / Task 3. ✓
 
 **2. Placeholder scan:** No TBD/TODO; every code step shows full code; every run step shows the exact command + expected result. ✓
 
-**Co-saturation is the deliberate fail-closed price of ungameable subtraction (decided, not a bug to patch):** the property floor subtracts tokens appearing in ≥`0.6` of the retrieved abstracts. On a *small* or *uniformly supportive* corpus the PROPERTY tokens themselves co-saturate → `prop_distinctive` empties → Guard 2 → uncertain. A "refine-never-empty" tweak (subject_phrase primary, restore saturation-removed tokens) was proposed and **rejected**: it reopens a *rich-corpus* leak the union closes — a model emitting `asserted_property="<formula>"`, `subject_phrase=""` would have the saturated formula restored and a formula-only quote credited. Saturation catches the formula in a rich corpus *regardless of what the model emits*; that model-independence is exactly why the union is fail-closed and refine-never-empty is not. So the union stays, and the recall hit (a well-corroborated/near-textbook property landing `uncertain`) is **disclosed honestly** (§2/§5/§10 + the basis suffix), with a genuine fix — needing a *non-saturation* subject signal — deferred to the ≥2 slice (T2-D9), where corroboration is the right lever anyway. Every test that must reach `pass` therefore uses a corpus where the supporting articles are a minority keeping a property token below threshold (5-article `FakeBackend` with 2 supporters; 3-article agent backend where `independent` sits in 1 of 3) — not test-rigging, it mirrors real retrieval (many subject-topical papers, few stating the exact property) and is the honest reason v1 promotes rarely.
+**Soundness now rests on require-ALL distinctive tokens (T2-D11), not on subtraction:** a supporting quote must contain EVERY distinctive property token, so a quote sharing only one fragment of a compound property (`temperature` of a different observable; `independent` in an unrelated sense) cannot earn credit. Subject subtraction (`saturated ∪ subject_phrase`) is now a RECALL aid — it removes subject tokens so a genuine quote isn't forced to restate the subject formula — not the soundness mechanism. Two consequences for the fixtures and the honest boundary: (1) **co-saturation** still fail-closes (if the whole property co-saturates and is subtracted, `prop_distinctive` empties → Guard 2 → uncertain) — disclosed in §2/§5/§10; tests that must reach `pass` use corpora where a property token stays below the saturation threshold. (2) **single-token-distinctive residual:** when the distinctive set is one ambiguous word (a co-saturated compound reduced to `{independent}`, or an inherently one-word property), require-ALL = any, so that one word can still be matched in an unrelated sense — irreducible without semantics, overlaps the entailment residual, disclosed. The earlier "refine-never-empty" idea was rejected (T2-D10): restoring saturation-removed tokens reopens a rich-corpus leak; the genuine co-saturation fix needs a non-saturation subject signal, deferred to the ≥2 slice (T2-D9). The agent-path fixtures co-saturate `temperature`, so `prop_distinctive` there is `{independent}` and require-ALL = any — the require-ALL fix is exercised directly by the Task 2 unit test `test_support_quote_compound_fragment_rejected`, not the agent tests.
 
 **3. Type consistency:** `_quote_admissible(quote, source_text, min_tokens)`, `_support_quote_valid(quote, source_text, claim_statement, asserted_property, subject_tokens, min_tokens)`, `_retrieval_saturated_tokens(articles, frac)` — same signatures in their definitions (Tasks 1–2) and their call sites (Task 3). `checked_body` returns `(tail, body)`; `tail` keys are lowercased (`tail["support"]`, `tail["independent_sources"]`, `tail["basis"]`) matching `parse._row`. `_extract_label`/`_extract_json`/`references.normalize_id`/`references.detect_kind` used with their real signatures. `Source`/`CheckRecord`/`Article` fields match `artifact.py`/`web_search.py`. ✓
 
