@@ -260,13 +260,14 @@ def _crossref_with(cands):
 
 
 async def test_audit_resolves_via_arxiv():
-    arx = _FakeArxiv([_Art("Quantum Mechanics in Phase Space", url="http://arxiv.org/abs/hep-th/0110114")])
+    # NOTE: use a NEW-style arXiv id (YYMM.NNNNN); references._ARXIV_RE doesn't normalize old-style ids.
+    arx = _FakeArxiv([_Art("Quantum Mechanics in Phase Space", url="http://arxiv.org/abs/2501.05287")])
     auditor = CiteAuditor(arx, _crossref_none, _cfg())
     r = await auditor.audit("phase space quantum mechanics")
     assert r.status == "resolved"
     assert r.reference.origin == "asserted"
     assert r.reference.title == "Quantum Mechanics in Phase Space"
-    assert r.reference.locator == "arxiv:hep-th/0110114" or r.reference.locator.startswith("arxiv:")
+    assert r.reference.locator == "arxiv:2501.05287"
 
 
 async def test_audit_falls_back_to_crossref():
