@@ -31,6 +31,7 @@ def convert(value: float, from_token: str, to_token: str) -> float | None:
 
 import re
 import unicodedata
+from collections import Counter
 
 _NUM_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?(?:\s*[×x]\s*10\s*\^?\s*[-+]?\d+)?")
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -124,6 +125,35 @@ def _quote_admissible(quote: str, source_text: str, min_tokens: int) -> bool:
     if len(nq.split()) < min_tokens:                 # substantial
         return False
     return True
+
+
+def _retrieval_saturated_tokens(articles, frac: float) -> set[str]:
+    """§5: content tokens appearing in >= `frac` of the retrieved abstracts — the entity/topic tokens
+    retrieval already maximized (code-derived, ungameable). SUBTRACTED from the asserted property."""
+    n = len(articles)
+    if n == 0:
+        return set()
+    counts: Counter = Counter()
+    for a in articles:
+        counts.update(_content_tokens(a.summary))    # document frequency: each token once per abstract
+    threshold = frac * n
+    return {tok for tok, c in counts.items() if c >= threshold}
+
+
+def _support_quote_valid(quote: str, source_text: str, claim_statement: str, asserted_property: str,
+                         subject_tokens: set[str], min_tokens: int) -> bool:
+    """§4/§5 supports-only gate = _quote_admissible AND the on-property floor. `subject_tokens` is the
+    caller-formed UNION (retrieval-saturated ∪ LLM subject_phrase tokens). Witnesses on-property topicality,
+    NOT entailment — a polarity flip carrying the distinctive word passes; direction stays the model's label."""
+    if not _quote_admissible(quote, source_text, min_tokens):
+        return False
+    prop = _content_tokens(asserted_property)
+    if not prop <= _content_tokens(claim_statement):       # Guard 1: property must be claim-derived
+        return False
+    prop_distinctive = prop - subject_tokens               # subtract the union subject
+    if not prop_distinctive:                               # Guard 2: non-vacuous
+        return False
+    return bool(_content_tokens(quote) & prop_distinctive)  # on-property overlap
 
 
 # The conditions parser's OWN ladders (G-D5b/F3) — NEVER SCALE_TABLE (whose K is energy-via-k_B, T is Tesla).
