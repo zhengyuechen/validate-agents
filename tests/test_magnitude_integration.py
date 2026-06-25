@@ -17,8 +17,9 @@ def store_with_prediction(discriminates=True):
     return ArtifactStore(art)
 
 INERT = ("COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: 1e-18 | BASELINE_OR_NULL: 0 "
-         "| SENSITIVITY: 1e-12 | SENSITIVITY_SOURCE: arXiv:1234 | THRESHOLD: 3 "
-         "| CONFIRM_IF: ratio>=3 | REFUTE_IF: ratio<3")
+         "| SENSITIVITY: 1e-12 | SENSITIVITY_SOURCE: arXiv:1234 "
+         "| SOURCE_QUANTITY: noise floor | CLAIM_CONDITIONS: T < 1 K | SOURCE_UNIT: T/sqrt(Hz) "
+         "| THRESHOLD: 3 | CONFIRM_IF: ratio>=3 | REFUTE_IF: ratio<3")
 DETECT = INERT.replace("PREDICTED_EFFECT: 1e-18", "PREDICTED_EFFECT: 1e-9")
 
 def router(body):
@@ -64,7 +65,9 @@ async def test_evaluate_ignores_magnitude_fields():
 
 
 BOUND_OK = ("COMPARISON_KIND: bound_check | PREDICTED_EFFECT: 1e-3 | BOUND: 1e-2 "
-            "| BOUND_SOURCE: PDG2024 | CONFIRM_IF: p<=bound | REFUTE_IF: p>bound")
+            "| BOUND_SOURCE: PDG2024 "
+            "| SOURCE_QUANTITY: coupling constant | CLAIM_CONDITIONS: all energies | SOURCE_UNIT: dimensionless "
+            "| CONFIRM_IF: p<=bound | REFUTE_IF: p>bound")
 BOUND_VIOLATE = BOUND_OK.replace("PREDICTED_EFFECT: 1e-3", "PREDICTED_EFFECT: 1e-1")
 BOUND_NO_SOURCE = BOUND_OK.replace("| BOUND_SOURCE: PDG2024 ", "| BOUND_SOURCE:  ")
 assert BOUND_NO_SOURCE != BOUND_OK      # guard: the replace must actually empty the source
@@ -115,6 +118,7 @@ async def test_sensitivity_missing_source_no_plan_no_attack():   # fail-closed a
 
 
 _COMMON_ONLY = ("COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: 1e-18 "
+                "| SOURCE_QUANTITY: noise floor | CLAIM_CONDITIONS: T < 1 K | SOURCE_UNIT: T/sqrt(Hz) "
                 "| CONFIRM_IF: ratio>=3 | REFUTE_IF: ratio<3")
 
 def reasking_router(good_tail):
@@ -139,6 +143,7 @@ async def test_designer_recovers_plan_on_reask():
 
 DM_CLEARS = ("COMPARISON_KIND: discriminating_margin | PREDICTED_EFFECT: 5e-9 "
              "| CLOSEST_PRIOR_EFFECT: 1e-9 | CLOSEST_PRIOR_SOURCE: arXiv:5678 "
+             "| SOURCE_QUANTITY: spin moment | CLAIM_CONDITIONS: T < 0.1 K | SOURCE_UNIT: µB "
              "| UNCERTAINTY: 1e-9 | THRESHOLD: 3 | CONFIRM_IF: margin>=3 | REFUTE_IF: margin<3")
 DM_INDISTINCT = DM_CLEARS.replace("PREDICTED_EFFECT: 5e-9", "PREDICTED_EFFECT: 2e-9")
 DM_NO_SOURCE = DM_CLEARS.replace("| CLOSEST_PRIOR_SOURCE: arXiv:5678 ", "| CLOSEST_PRIOR_SOURCE:  ")

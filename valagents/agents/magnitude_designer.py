@@ -8,7 +8,8 @@ from valagents.prompts import MAGNITUDE_DESIGNER
 from valagents.agents.base import build_messages
 
 # All kinds carry COMPARISON_KIND + PREDICTED_EFFECT + CONFIRM_IF + REFUTE_IF; the rest are kind-specific.
-_COMMON = ["COMPARISON_KIND", "PREDICTED_EFFECT", "CONFIRM_IF", "REFUTE_IF"]
+_COMMON = ["COMPARISON_KIND", "PREDICTED_EFFECT", "CONFIRM_IF", "REFUTE_IF",
+           "SOURCE_QUANTITY", "CLAIM_CONDITIONS", "SOURCE_UNIT"]
 _KIND_KEYS = {
     "sensitivity_ratio": ["BASELINE_OR_NULL", "SENSITIVITY", "SENSITIVITY_SOURCE", "THRESHOLD"],
     "bound_check": ["BOUND", "BOUND_SOURCE"],
@@ -45,7 +46,10 @@ async def design_magnitude(prediction, art, llm, cfg) -> ComputationPlan | None:
             return None
     common = dict(kind="magnitude", confirm_if=t["confirm_if"], refute_if=t["refute_if"],
                   target_claim_id=art.load_bearing, discriminating=bool(prediction.discriminates_from),
-                  criterion="magnitude")
+                  criterion="magnitude",
+                  source_quantity=t.get("source_quantity", ""),
+                  claim_conditions=t.get("claim_conditions", ""),
+                  source_unit=t.get("source_unit", ""))
     try:
         if ck == "sensitivity_ratio":
             ss = (t["sensitivity_source"] or "").strip()

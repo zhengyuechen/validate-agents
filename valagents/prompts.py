@@ -323,7 +323,8 @@ CLAIM: <id> | STATEMENT: <revised statement text>"""
 
 MAGNITUDE_DESIGNER = """You DESIGN a numeric magnitude check; you do NOT run or judge it — code does that, \
 and you will never see the result. Given a measurable prediction, choose ONE comparison and produce its \
-structured plan. Output no code; never invent a threshold/sensitivity/bound without naming its SOURCE.
+structured plan. Output no code; never invent a threshold/sensitivity/bound without naming a \
+**resolvable** SOURCE (arXiv id / DOI / URL), the QUANTITY it reports, the CONDITIONS, and the UNIT.
 
 FORMAL CLAIM: {formal}
 PREDICTION: {observable} (effect size: {effect_size}; discriminates from: {discriminates_from})
@@ -338,11 +339,15 @@ exceed? Give PREDICTED_EFFECT and the BOUND with its BOUND_SOURCE.
 Give PREDICTED_EFFECT, the CLOSEST_PRIOR_EFFECT with its CLOSEST_PRIOR_SOURCE, the UNCERTAINTY, and a THRESHOLD \
 (how many sigma of separation). Use this only when the prediction discriminates from an alternative.
 
+Each *_SOURCE must be a resolvable locator (arXiv id / DOI / URL). Also supply SOURCE_QUANTITY (what the \
+sourced value measures), CLAIM_CONDITIONS (the regime the claim applies in, e.g. "T < 1 K"), and \
+SOURCE_UNIT (the unit of the sourced value, e.g. "µB") — these apply to every kind.
+
 All quantities are NUMBERS in SI/natural units. End with EXACTLY ONE line carrying ONLY the fields for your \
 chosen kind, e.g.:
-COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: <n> | BASELINE_OR_NULL: <n> | SENSITIVITY: <n> | SENSITIVITY_SOURCE: <where> | THRESHOLD: <n> | CONFIRM_IF: <...> | REFUTE_IF: <...>
-COMPARISON_KIND: bound_check | PREDICTED_EFFECT: <n> | BOUND: <n> | BOUND_SOURCE: <where> | CONFIRM_IF: <...> | REFUTE_IF: <...>
-COMPARISON_KIND: discriminating_margin | PREDICTED_EFFECT: <n> | CLOSEST_PRIOR_EFFECT: <n> | CLOSEST_PRIOR_SOURCE: <where> | UNCERTAINTY: <n> | THRESHOLD: <n> | CONFIRM_IF: <...> | REFUTE_IF: <...>"""
+COMPARISON_KIND: sensitivity_ratio | PREDICTED_EFFECT: <n> | BASELINE_OR_NULL: <n> | SENSITIVITY: <n> | SENSITIVITY_SOURCE: <arXiv id / DOI / URL> | SOURCE_QUANTITY: <what the sensitivity measures> | CLAIM_CONDITIONS: <the claim's regime, e.g. T < 1 K> | SOURCE_UNIT: <unit, e.g. T/sqrt(Hz)> | THRESHOLD: <n> | CONFIRM_IF: <...> | REFUTE_IF: <...>
+COMPARISON_KIND: bound_check | PREDICTED_EFFECT: <n> | BOUND: <n> | BOUND_SOURCE: <arXiv id / DOI / URL> | SOURCE_QUANTITY: <what the bound measures> | CLAIM_CONDITIONS: <the claim's regime, e.g. T < 1 K> | SOURCE_UNIT: <unit of the bound, e.g. µB> | CONFIRM_IF: <...> | REFUTE_IF: <...>
+COMPARISON_KIND: discriminating_margin | PREDICTED_EFFECT: <n> | CLOSEST_PRIOR_EFFECT: <n> | CLOSEST_PRIOR_SOURCE: <arXiv id / DOI / URL> | SOURCE_QUANTITY: <what the prior measures> | CLAIM_CONDITIONS: <the claim's regime, e.g. T < 1 K> | SOURCE_UNIT: <unit of the prior effect> | UNCERTAINTY: <n> | THRESHOLD: <n> | CONFIRM_IF: <...> | REFUTE_IF: <...>"""
 
 COMPUTATION_DESIGNER = """You DESIGN a symbolic check; you do NOT run or judge it — code does that, and \
 you will never see the result. Given a known-limit-recovery claim, produce the structured plan to test \
