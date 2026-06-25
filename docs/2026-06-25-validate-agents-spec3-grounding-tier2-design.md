@@ -19,7 +19,7 @@
 
 ### Out of scope (deferred / never)
 - **Symbolic `expected_source`** grounding (a known-result match, Tier-1-shaped) — a separate slice.
-- **Raising the bar to `≥2`** — Tier-2 makes it *available* (the grounder co-signer is no longer pure say-so) but does not raise it; that is a gate change in `artifact.py` with cross-lens semantics, its own slice (T2-D8).
+- **Raising the bar to `≥2`** — Tier-2 makes it *available* (the grounder co-signer is no longer pure say-so) but does not raise it; that is a gate change in `artifact.py` with cross-lens semantics, its own slice (T2-D9).
 - **Entailment adjudication** — whether a passage logically *backs* the claim is semantic and not code-decidable here. It stays **loud** (the verbatim quote in `basis`), mitigated structurally by the contradiction guard + the deferred ≥2-corroboration. We do **not** add an NLI model (that relocates say-so to another model — rejected).
 - **Independence adjudication** — the `Article` schema has no authors; code cannot witness it. `relation="independent"` is LLM-asserted/hardcoded; we stop claiming code witnesses it.
 
@@ -31,7 +31,7 @@ A live review of the prior framing established, against the code, that "quote-ba
 
 - **Code witnesses (new in Tier-2):**
   1. **Anti-fabrication** — the quote is a literal, **sentence-bounded** substring of the cited article's retrieved abstract (`_norm`-normalized, both directions). The model cannot cite a passage that isn't there, and cannot invert meaning by spanning a sentence boundary.
-  2. **On-property topicality (non-vacuous)** — the quote overlaps the claim's **distinctive asserted-property** tokens, not merely the entity/topic tokens that retrieval already saturated. This is what makes "topicality" mean something (retrieval queries on `claim.statement`, so plain claim-overlap is vacuous — §5).
+  2. **On-property topicality (non-vacuous)** — the quote overlaps the claim's **distinctive asserted-property** tokens, not merely the entity/topic tokens that retrieval already saturated. This is what makes "topicality" mean something (retrieval queries on `claim.statement`, so plain claim-overlap is vacuous — §5). *(Recall cost, by design: when the property word is itself topic-defining — saturates the corpus — it is subtracted too and `prop_distinctive` empties → `uncertain`. The floor fails **closed**: it withholds credit rather than grant an unwitnessed pass. §5/§10.)*
   3. **Real retrieved, deduped source** — the cited `[A1]` maps to an actually-retrieved article with a URL, counted once per distinct work.
 - **Code does NOT witness (stays loud / un-witnessed):**
   - **Entailment** — whether the on-property passage *supports* vs merely *mentions* the property. The `supports`/`contradicts` **direction is the model's label.** A polarity flip that shares the property axis word (e.g. claim "temperature-**independent**", quote "strong temperature **dependence**") passes the topicality floor; only the model's direction label distinguishes it. → mitigated by the **contradiction guard** (§6) and the deferred **≥2** (a single Tier-2 source is thin evidence).
@@ -47,21 +47,26 @@ Every section below is held to this boundary; the spec claims presence + on-prop
 ground_claim(claim, …):
   formatted, articles = search_articles(backend, claim.statement)   # abstracts (top-10), already retrieved
   label_to_article = {f"A{i}": a for i, a in enumerate(articles, 1)}
-  subject = _retrieval_saturated_tokens(articles, cfg)              # §5: entity/topic tokens (code, ungameable)
 
-  LLM (one call) → SUPPORT, BASIS, asserted_property, and a citations JSON:
+  LLM (one call) → SUPPORT, BASIS, asserted_property, subject_phrase, and a citations JSON:
         [{label:"A1", direction:"supports"|"contradicts", quote:"…"}]
+
+  # §5 property floor (computed once): subtract the UNION of code-saturated + LLM-named subject tokens.
+  subject_subtract = _retrieval_saturated_tokens(articles, cfg) | _content_tokens(subject_phrase)
+  prop_distinctive = _content_tokens(asserted_property) - subject_subtract
+  prop_ok = _content_tokens(asserted_property) <= _content_tokens(claim.statement)  # Guard 1: claim-derived
+              and bool(prop_distinctive)                                            # Guard 2: non-vacuous
 
   passing, contradicted = [], False
   for c in citations:
      art = label_to_article.get(c.label)                           # must be a real retrieved article (kept)
      if art is None: continue
-     if not _support_quote_valid(c.quote, art.summary, claim.statement, asserted_property, subject, cfg):
-         continue                                                  # fail-closed: fabricated / cross-sentence / off-property
+     if not _quote_admissible(c.quote, art.summary, cfg):          # SHARED gate: anti-fab + sentence-bound + substantial
+         continue
      if c.direction == "contradicts":
-         contradicted = True                                       # §6: a code-witnessed contradiction
-     elif c.direction == "supports":
-         passing.append(art)                                       # a code-witnessed on-property supporting citation
+         contradicted = True                                       # §6: admissible only; NO property floor
+     elif c.direction == "supports" and prop_ok and (_content_tokens(c.quote) & prop_distinctive):
+         passing.append(art)                                       # §5 on-property floor (supports only)
 
   code_witnessed = len(_dedup(passing))                            # §7: distinct works
   code_witnessed = min(code_witnessed, len(articles))             # code cap (cannot exceed retrieval)
@@ -79,16 +84,20 @@ The retrieval, the `[A1]→article` mapping, `map_support_to_verdict`, and the `
 
 ---
 
-## 4. The quote gate (`_support_quote_valid`, pure code)
+## 4. The quote gate (pure code) — factored into a shared admissibility check + a supports-only property floor
 
-`_support_quote_valid(quote, source_text, claim_statement, asserted_property, subject_tokens, cfg) -> bool`, in `valagents/grounding.py`. Reuses Tier-1's `_norm`/`_content_tokens`. Returns True iff **all**:
+The gate splits in two, because `supports` and `contradicts` need different floors (§6): a contradiction carries the *opposite* polarity word, so requiring the distinctive-property overlap would reject genuine contradictions.
 
-1. **Anti-fabrication:** `_norm(quote)` is a literal substring of `_norm(source_text)` (the cited article's abstract). *(Mirror `_norm` on BOTH this and the contradicts path — the prior nit.)*
-2. **Sentence-bounded:** the quote does not span a sentence boundary — it lies within a single sentence of `source_text` (split on `.?!` with abbreviation tolerance). Kills the "`…no long-range order is observed. The lattice…`" → "`order is observed. The lattice`" inversion (anti-fabrication-by-splicing).
-3. **Substantial:** `≥ quote_min_tokens` (the existing GroundCfg knob, 6) whitespace word-tokens.
-4. **On-property topicality (§5):** the quote's content tokens overlap `prop_distinctive` (the claim's distinctive asserted-property tokens) — NOT merely the claim's entity/topic tokens.
+**Shared admissibility — `_quote_admissible(quote, source_text, cfg) -> bool`** (BOTH directions must pass; reuses Tier-1's `_norm`):
+1. **Anti-fabrication:** `_norm(quote)` is a literal substring of `_norm(source_text)` (the cited article's abstract). *(Mirror `_norm` on BOTH directions — the prior nit.)*
+2. **Sentence-bounded:** the quote lies within a single sentence of `source_text` (split on `.?!` with abbreviation tolerance) — kills the "`…no long-range order is observed. The lattice…`" → "`order is observed. The lattice`" splice inversion.
+3. **Substantial:** `≥ quote_min_tokens` (existing GroundCfg knob, 6) whitespace word-tokens.
 
-Any failure → the citation does not count (fail-closed). This gate witnesses presence + on-property topicality + anti-fabrication; it does **not** evaluate direction (that's the model's label, §6).
+**On-property floor (supports ONLY, §5):** the quote's content tokens overlap `prop_distinctive` (the claim's distinctive asserted-property tokens, after subtracting the union subject), gated by Guards 1+2 (`prop_ok`). `_support_quote_valid(...)` = `_quote_admissible(...)` **and** the on-property overlap.
+
+> **Pipeline vs. helper (no contradiction):** `_support_quote_valid` is the pure-code helper unit-tested in isolation (slice 1), taking `subject_tokens` and recomputing `prop_distinctive` internally. The §3 pipeline computes `prop_distinctive`/`prop_ok` **once** outside the citation loop (the union subtract is per-claim, not per-citation) and inlines the same two checks per supports citation — identical logic, hoisted for efficiency. An implementer may either call `_support_quote_valid` per citation or inline as §3 shows; the unit tests target the helper.
+
+So: a **supports** citation must pass `_quote_admissible` **and** the property floor; a **contradicts** citation must pass `_quote_admissible` **only** (§6) — a trivial or spliced "contradiction" therefore *cannot* force the downgrade (it must still be a substantial, single-sentence, real passage), but it need not carry the property polarity word. Any failure → the citation does not count (fail-closed). The gate witnesses presence + (for supports) on-property topicality + anti-fabrication; it does **not** evaluate direction (the model's label, §6) or entailment.
 
 ---
 
@@ -96,17 +105,23 @@ Any failure → the citation does not count (fail-closed). This gate witnesses p
 
 **Why a plain claim-overlap floor is vacuous (measured):** `search_articles` queries arXiv on `claim.statement` itself, so every retrieved abstract is on-topic by construction; the quote is a substring of the abstract, so its tokens are a subset of tokens retrieval already maximized against the claim. A plain "quote shares claim content-tokens" floor re-tests what retrieval guaranteed — and (verified) a *contradicting* quote and an off-property *synthesis-method* sentence both pass it. The floor must test the claim's **asserted property**, not its **subject/entity**.
 
-**Design — claim-derived property, retrieval-saturated subject subtracted:**
-- The grounder emits `asserted_property`: a short phrase naming what the claim asserts about its subject (e.g. claim "the PSD of YbZn₂GaO₅ is temperature-independent" → `asserted_property = "temperature-independent"`).
-- **Guard 1 (claim-derived — pure code):** `_content_tokens(asserted_property) ⊆ _content_tokens(claim.statement)`. The property must come *from the claim*; the model cannot invent a property the claim never made. Fail → the floor cannot be evaluated → no citation can pass → `uncertain` (fail-closed).
-- **`subject_tokens = _retrieval_saturated_tokens(articles, cfg)`** — content tokens appearing in `≥ subject_saturation_frac` (default **0.6**) of the retrieved abstracts. Because retrieval matched every hit on the entity/topic, these are exactly the vacuous (entity/subject) tokens. **This is code-derived from the abstracts, NOT the model — so it is ungameable** (the model cannot under-specify a subject it doesn't control; this closes the "property-as-subject" gap *by construction*, not by guarding against gaming).
-- **`prop_distinctive = _content_tokens(asserted_property) − subject_tokens`** — the claim's asserted-property tokens that retrieval did **not** saturate (e.g. `{temperature, independent} − {ybzn2gao5, psd, …} = {temperature, independent}`; if "temperature" is itself saturated across abstracts, it too drops, leaving the distinctive `{independent}`).
-- **Guard 2 (non-vacuous — pure code):** `prop_distinctive` must be non-empty. If the asserted property is entirely subject/entity tokens (a property-as-subject emission, or a property fully saturated by retrieval), the floor would be vacuous → `uncertain` (fail-closed).
+**Design — claim-derived property, with a UNION subject subtractor (code-saturated ∪ LLM-named):**
+- The grounder emits `asserted_property` (what the claim asserts about its subject — e.g. claim "the PSD of YbZn₂GaO₅ is temperature-independent" → `"temperature-independent"`) **and** `subject_phrase` (the entity/system — e.g. `"YbZn₂GaO₅ PSD"`).
+- **Guard 1 (claim-derived — pure code):** `_content_tokens(asserted_property) ⊆ _content_tokens(claim.statement)`. The property must come *from the claim*; the model cannot invent a property the claim never made. Fail → the floor cannot be evaluated → no supports citation can pass → `uncertain` (fail-closed).
+- **The subtractor is the UNION of two signals:** `subject_subtract = _retrieval_saturated_tokens(articles, cfg) ∪ _content_tokens(subject_phrase)`.
+  - **`_retrieval_saturated_tokens`** — content tokens appearing in `≥ subject_saturation_frac` (default **0.6**) of the retrieved abstracts. Retrieval matched every hit on the entity/topic, so these are the vacuous subject tokens — **code-derived, ungameable** (covers the rich-corpus / adversarial case).
+  - **`_content_tokens(subject_phrase)`** — the LLM-named entity tokens (covers the **thin-corpus / honest** case, below).
+- **`prop_distinctive = _content_tokens(asserted_property) − subject_subtract`**.
+- **Guard 2 (non-vacuous — pure code):** `prop_distinctive` must be non-empty, else `uncertain` (the "property" was entirely subject tokens, or fully saturated).
 - **The floor:** the quote's content tokens overlap `prop_distinctive` (≥1).
 
-**What it catches / doesn't (honest):** catches the measured off-property false-positives (a synthesis sentence sharing only `ybzn2gao5` → no `prop_distinctive` overlap → fails; an on-material sentence that never mentions the property → fails). Does **not** catch a polarity flip that contains the distinctive property word (claim "temperature-independent", quote "not temperature-independent") — that passes the floor; **direction stays loud** and is carried by §6 + the deferred ≥2. The floor witnesses *on-property topicality*, never *entailment*.
+**Why the union — saturation alone leaks exactly where the system lives (the thin-corpus hole):** the saturation signal assumes the subject saturates the corpus and the property doesn't — but on a **thin or multi-synonym** corpus the subject under-saturates. A *novel* material whose exact formula appears in only 1–2 of the retrieved abstracts → `ybzn2gao5` doesn't clear 0.6 → it **survives in `prop_distinctive`** → a synthesis-sentence quote sharing only the formula token clears the floor (Guard 2 doesn't catch it — `prop_distinctive` is non-empty, it holds the leaked formula). And thin literature is the defining condition of a novel idea — the system's whole purpose. The LLM-named `subject_phrase` subtracts the formula that saturation missed.
+- **Monotonic-safe (why the union can't make it worse):** `subject_subtract` only grows, so `prop_distinctive_union ⊆ prop_distinctive_saturation` — strictly more conservative, never a *new* false-support. Game the `subject_phrase` (emit a useless one) → it degrades to saturation-alone (no worse than the prior design). Emit it honestly (the threat model) → it subtracts the under-saturated formula. The "gameable" objection only bit when LLM-subject was the *sole* subtractor (mis-split leaves the formula in `property`); as a *union member* it can only add subtraction, so no guard against gaming is needed.
 
-*(Considered & rejected: an LLM-emitted `subject` phrase to subtract — gameable (the model under-specifies the subject to inflate `prop_distinctive`, reopening vacuity). Retrieval-saturation is ungameable and needs no anti-gaming guard. T2-D4.)*
+**The other direction is fail-closed (note):** if retrieval keys on the *property* (e.g. all hits are about superconductivity), the property co-saturates → `prop_distinctive` empties → Guard 2 → `uncertain`. That is **safe** (recall drops for topic-defining-property claims; never a false-support) — stated in §2's boundary and the §10 tests.
+- **Thin-corpus guard (optional, recommended):** when `len(articles)` is below a few (saturation is statistically meaningless on 2–3 abstracts), lean on the LLM-`subject_phrase` subtractor (the union already does this) and treat a near-empty corpus conservatively — a borderline `prop_distinctive` on a 2–3-abstract corpus should not alone carry a pass.
+
+**What it catches / doesn't (honest):** catches the measured off-property false-positives (a synthesis sentence sharing only the formula → fails) **including the thin-corpus formula-leak** (the union subtracts the LLM-named formula). Does **not** catch a polarity flip that contains the distinctive property word (claim "temperature-independent", quote "not temperature-independent") — that passes the floor; **direction stays loud**, carried by §6 + the deferred ≥2. The floor witnesses *on-property topicality*, never *entailment*.
 
 New GroundCfg knob: `subject_saturation_frac: float = 0.6`.
 
@@ -118,13 +133,13 @@ The `direction` (supports/contradicts) is the **model's loud label** — code do
 
 **The hole (verified):** `status` fails only on `verdict=="fail"`; the `CONTRADICTION:` basis prefix is honored **only** inside `_math_uncertainty_is_nonblocking` (mathematical-claims-only, uncertain-only). So for an empirical/mechanistic claim, a `supports`+`contradicts` citation pair → `pass` with a real contradiction sitting **ignored** in the basis.
 
-**The guard:** in `ground_claim`, if **any** `contradicts` citation passes its quote gate (anti-fabrication + sentence-bound + substantial; *the property floor is not required for a contradiction* — a contradicting passage need not share the asserted-property polarity word), set `contradicted = True`, and **force the grounder verdict to `uncertain`** if it would otherwise be `pass` (before building the `CheckRecord`). **Not `fail`** — this preserves the grounder's existing stance ("do not auto-refute a novel claim merely because the literature predates it"); it refuses to let a claim *validate* while a real, verbatim, retrieved contradiction stands. `artifact.py` is untouched; the guard lives in `ground_claim`. The contradicting quote is surfaced loud (`CONTRADICTION:` in `basis`).
+**The guard:** in `ground_claim`, if **any** `contradicts` citation passes **`_quote_admissible`** (anti-fabrication + sentence-bound + substantial — the §4 shared check; the property floor is *not* required, because a contradiction carries the opposite polarity word), set `contradicted = True`, and **force the grounder verdict to `uncertain`** if it would otherwise be `pass` (before building the `CheckRecord`). **Not `fail`** — this preserves the grounder's existing stance ("do not auto-refute a novel claim merely because the literature predates it"); it refuses to let a claim *validate* while a real, verbatim, retrieved contradiction stands. Requiring `_quote_admissible` (substantial + single-sentence + in-bytes) means a trivial or spliced "contradiction" *cannot* force the downgrade. `artifact.py` is untouched; the guard lives in `ground_claim`. The contradicting quote is surfaced loud (`CONTRADICTION:` in `basis`).
 
 ---
 
 ## 7. Counting: dedup + caps
 
-- **Dedup (T2-D5):** count **distinct works**, not per-citation/per-label. Two arXiv hits for the same paper (preprint + published, or v1/v2) must count once. Dedup key: `references.normalize_id(url)` (arXiv-id base / DOI), falling back to a normalized title (casefold, strip punctuation/whitespace). `_dedup(passing)` collapses by this key.
+- **Dedup (T2-D5):** count **distinct works**, not per-citation/per-label. Two arXiv hits for the same paper (preprint + published, or v1/v2) must count once. Dedup key: `references.normalize_id(url)` (arXiv-id base / DOI), falling back to a normalized title (casefold, strip punctuation/whitespace). `_dedup(passing)` collapses by this key. *(Accepted edge: same-work-different-title — e.g. a preprint and journal version with a retitled abstract and distinct ids — slips dedup; acceptable for v1, and harmless at the ≥1 bar.)*
 - **Code cap (T2-D6):** `code_witnessed = min(len(_dedup(passing)), len(articles))` — cannot exceed the retrieved count (the LLM controls the citations and the self-reported `independent_sources`, but not the retrieval count).
 - **D8 cap kept:** `independent_sources = min(as_int(SUPPORT.independent_sources), code_witnessed)` — the model can still *downgrade* but never inflate beyond the code-witnessed count.
 - `map_support_to_verdict(SUPPORT, independent_sources)` unchanged; then the §6 contradiction guard.
@@ -136,6 +151,7 @@ The `direction` (supports/contradicts) is the **model's loud label** — code do
 `relation="independent"` is hardcoded for every retrieved source (`grounder.py:63-71`) and the `Article` schema carries no authors — **code cannot witness independence here.** The gate field is `independent_sources` (in `CheckRecord`, read by `artifact.py` — **untouched**, so the field name stays), but Tier-2 stops *claiming* it means independence:
 - The `basis` and the decision log name the credited quantity honestly: **"quote-verified retrieved source(s)"** — a real, deduped, retrieved article carrying a code-checked on-property supporting passage. Independence (distinct author groups/lineages) is **LLM-asserted, not code-witnessed**, and the basis says so.
 - This is a *documentation/labeling* correction, not a field rename (renaming `independent_sources` would touch `artifact.py`). The number is now *more* honest (quote-verified, not retrieval-existence), and we describe it as what it is.
+- **Earmark:** the actual field rename (`independent_sources` → e.g. `corroborating_sources`) belongs to the deferred **≥2 slice (T2-D9)** — that slice already edits `artifact.py`'s gate, so the rename rides along there instead of forcing a gate-touching change now. Recorded so the rename isn't forgotten and isn't done prematurely.
 
 ---
 
@@ -153,6 +169,7 @@ The `direction` (supports/contradicts) is the **model's loud label** — code do
 Pure-code helpers tested in isolation (FakeLLM/Fake backend for the agent path):
 - **`_support_quote_valid`** — supports (quote ∈ abstract, single sentence, substantial, overlaps `prop_distinctive`); **fabricated** quote (not in abstract) → False; **cross-sentence** splice → False; **off-property** (overlaps only subject/entity tokens, the measured `ybzn2gao5`-only synthesis sentence) → False; non-substantial → False.
 - **Property floor** — Guard 1: an `asserted_property` with a token not in the claim → fail-closed (uncertain). Guard 2: `asserted_property` entirely subject/entity (property-as-subject) → `prop_distinctive` empty → uncertain. Off-property synthesis sentence (overlaps only retrieval-saturated subject tokens, the measured `ybzn2gao5`-only case) → fails the floor. **Honest-boundary pin (no over-claim):** a contradicting quote that is *mislabeled* `supports` and carries the distinctive property word (a negation, e.g. "not temperature-independent") *passes* the floor — this is the irreducible polarity residual; the test asserts it is NOT counted only when the model labels it `contradicts` (§6 guard), and is otherwise carried by the deferred ≥2, never claimed "caught" by the floor.
+- **Thin-corpus probe (day-one, the Tier-2 wrong-conditions analog).** Retrieve **3 abstracts** where the claim's subject **formula/expression appears in only one** of them (below `subject_saturation_frac`, so saturation-alone does NOT subtract it) + a synthesis citation **labeled `supports`** whose quote overlaps *only* that subject formula (no distinctive property word). With saturation-alone this lands **green (false-support)**; with the **UNION subtractor** (the grounder's `subject_phrase` carries the formula) `prop_distinctive` loses the formula tokens → the quote fails the on-property floor → **`uncertain`, not credit.** If this probe ever goes green, the floor is leaking on novel input — the exact failure the union closes. **Co-saturation companion:** a corpus where the *property* word is topic-defining (saturates all 3 abstracts) → `prop_distinctive` empty → uncertain (recall-drop, fail-closed, asserted explicitly so the behavior is intentional not accidental).
 - **Contradiction guard (§6)** — a `supports`+`contradicts` pair where both quotes pass → verdict forced to `uncertain` (NOT pass, NOT fail); the `CONTRADICTION:` quote in basis. A lone `contradicts` → uncertain. (This is the regression test for the measured Blocker-2 hole.)
 - **Dedup/cap (§7)** — two citations to the same work (preprint+published URLs) → `code_witnessed==1`; `code_witnessed ≤ len(articles)`; `min(llm_independent, code_witnessed)` (model can't inflate).
 - **Verdict mapping** — `supported` + ≥1 quote-passing supporting citation → pass; `supported` + 0 passing (all fabricated/off-property) → uncertain (the say-so→code-witnessed upgrade); backend-off / no retrieval → uncertain (no regression).
@@ -164,7 +181,7 @@ Pure-code helpers tested in isolation (FakeLLM/Fake backend for the agent path):
 - **T2-D1 (scope)** Grounder `[A1]` support-relation only; symbolic `expected_source` and the `≥2` bar deferred.
 - **T2-D2 (honest boundary — the core)** The credit witnesses **presence + on-property topicality + anti-fabrication**, NOT entailment and NOT independence. "Supports" direction is the model's loud label. The prior "quote-backed support" framing was an over-claim (a contradicting quote passed the plain floor; the credit was quote-backed *presence* + say-so *direction*). The spec, `basis`, and code comments claim only what is witnessed.
 - **T2-D3 (mechanism)** F1/F3-for-reading: the LLM emits per-citation `{direction, verbatim_quote}` + the claim's `asserted_property`; pure code adjudicates the quote (in-bytes, sentence-bound, substantial, on-property). No NLI model (relocates say-so — rejected).
-- **T2-D4 (property floor — claim-derived, retrieval-saturated subtraction)** The floor tests the claim's **distinctive asserted-property** tokens, because a plain claim-overlap floor is vacuous (retrieval already maximized claim-topicality, and the quote is a substring of the on-topic abstract). `asserted_property` is **claim-derived** (Guard 1: tokens ⊆ claim — no invention); the subtracted **subject** is the **retrieval-saturated** tokens (≥`subject_saturation_frac` of abstracts) — **code-derived and ungameable**, closing the property-as-subject gap by construction (an LLM-emitted subject was rejected as gameable). Guard 2: `prop_distinctive` non-empty else uncertain. The floor does not catch a polarity flip carrying the distinctive word — direction stays loud.
+- **T2-D4 (property floor — claim-derived property, UNION subtraction)** The floor tests the claim's **distinctive asserted-property** tokens, because a plain claim-overlap floor is vacuous (retrieval already maximized claim-topicality, and the quote is a substring of the on-topic abstract). `asserted_property` is **claim-derived** (Guard 1: tokens ⊆ claim — no invention). The subtracted **subject** is a **UNION**: `subject_subtract = _retrieval_saturated_tokens(articles, frac) | _content_tokens(subject_phrase)` — the retrieval-saturated tokens (≥`subject_saturation_frac` of abstracts, **code-derived, ungameable**) *unioned with* the grounder-emitted `subject_phrase` tokens. **Why the union, not saturation alone (the thin-corpus fix):** saturation under-subtracts on a thin/novel corpus — the exact home turf of this tool — because the subject formula appears in too few of the retrieved abstracts to clear `frac`, leaking the formula into `prop_distinctive` and reopening a false-support for novel claims. The union closes that hole. **Why it cannot reopen a false-positive:** `prop_distinctive_union = property − (saturated ∪ subject_phrase) ⊆ property − saturated = prop_distinctive_saturation`; adding union members only *shrinks* `prop_distinctive`, so the floor only gets *stricter* — a gamed/empty `subject_phrase` degrades the floor to saturation-alone (the prior behavior), never weaker. Guard 2: `prop_distinctive` non-empty else uncertain. **Co-saturation fail-closed:** if the property word is *itself* topic-defining (saturates the corpus, e.g. a paper whose every abstract names the property), it is subtracted too → `prop_distinctive` empty → uncertain; recall drops for topic-defining-property claims, by design. The floor does not catch a polarity flip carrying the distinctive word — direction stays loud.
 - **T2-D5 (dedup)** Count distinct works (`normalize_id` / normalized title), not per-citation — preprint+published collapse to one; protects the future `≥2` slice.
 - **T2-D6 (code cap)** `code_witnessed ≤ len(retrieved)`, and `independent_sources = min(llm_self_reported, code_witnessed)` — the model can downgrade, never inflate; the only ceilings are code-controlled.
 - **T2-D7 (contradiction guard — load-bearing)** A passing `contradicts` citation forces the grounder verdict to `uncertain` (not `fail`) before the `CheckRecord` — because the gate's `CONTRADICTION:` handling is mathematical-claims-only, so otherwise a real contradiction is ignored for empirical/mechanistic claims. `artifact.py` untouched.
@@ -174,5 +191,5 @@ Pure-code helpers tested in isolation (FakeLLM/Fake backend for the agent path):
 ---
 
 ## 12. Build slices (order)
-1. **Pure-code quote gate + property floor (no network/LLM) — the honesty core.** In `valagents/grounding.py`: `_sentence_bounded` (single-sentence containment), `_retrieval_saturated_tokens(articles, frac)`, `_support_quote_valid(quote, source_text, claim_statement, asserted_property, subject_tokens, cfg)` (Guards 1/2 + the four checks); `GroundCfg.subject_saturation_frac`. Exhaustive unit tests incl. the measured off-property + contradicting-quote + cross-sentence + property-as-subject cases.
-2. **Grounder prompt + agent wiring.** `GROUNDER_CLAIM`: emit `asserted_property` + a citations JSON (`[{label,direction,quote}]`); `ground_claim`: parse (JSON, `_extract_json` pattern — quotes contain `|`), run the gate per citation, dedup, caps, `min(llm,code)`, the §6 contradiction guard, the honest loud `basis`. Integration tests (FakeLLM citations JSON + fake backend abstracts): supports→pass, fabricated/off-property→uncertain, contradicts→uncertain, dedup, backend-off→uncertain, gate-purity pins green.
+1. **Pure-code quote gate + property floor (no network/LLM) — the honesty core.** In `valagents/grounding.py`: `_sentence_bounded` (single-sentence containment), `_quote_admissible(quote, source_text, cfg)` (anti-fab `_norm` substring both directions + sentence-bound + substantial — the shared check used by **both** directions), `_retrieval_saturated_tokens(articles, frac)`, `_support_quote_valid(quote, source_text, claim_statement, asserted_property, subject_tokens, cfg)` = `_quote_admissible` **AND** the on-property floor (Guards 1/2 + `prop_distinctive` overlap); `GroundCfg.subject_saturation_frac`. `subject_tokens` is the **caller-formed union** (saturated ∪ `subject_phrase`); slice 1 takes it as a parameter and tests both the saturation-only and union cases (the latter via a hand-passed `subject_phrase` token set). Exhaustive unit tests incl. the measured off-property + contradicting-quote + cross-sentence + property-as-subject + **thin-corpus formula-leak** cases.
+2. **Grounder prompt + agent wiring.** `GROUNDER_CLAIM`: emit `asserted_property` + `subject_phrase` + a citations JSON (`[{label,direction,quote}]`); `ground_claim`: parse (JSON, `_extract_json` pattern — quotes contain `|`), form `subject_subtract = _retrieval_saturated_tokens(articles,cfg) | _content_tokens(subject_phrase)`, run `_support_quote_valid` per `supports` citation and `_quote_admissible` per `contradicts` citation, dedup, caps, `min(llm,code)`, the §6 contradiction guard, the honest loud `basis`. Integration tests (FakeLLM citations JSON + fake backend abstracts): supports→pass, fabricated/off-property→uncertain, **thin-corpus formula-leak (3 abstracts, formula in 1, supports quote)→uncertain**, contradicts→uncertain, dedup, backend-off→uncertain, gate-purity pins green.
