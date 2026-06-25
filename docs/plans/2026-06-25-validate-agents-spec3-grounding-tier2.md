@@ -398,6 +398,17 @@ async def test_supports_with_on_property_quote_passes():
     assert rec.verdict == "pass" and rec.independent_sources == 1
 
 
+async def test_pass_basis_carries_honest_boundary():
+    # §8: a credited pass must disclose IN THE BASIS that the credit is presence+topicality, not entailment/independence
+    tail = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | BASIS: direct on-property support"
+    payload = {"asserted_property": "temperature-independent", "subject_phrase": "YbZn2GaO5 noise PSD",
+               "citations": [{"label": "A1", "direction": "supports",
+                              "quote": "The measured noise PSD is temperature-independent below 1 K."}]}
+    rec = await ground_claim(CLAIM, FC, _Backend([A_SUPPORT, A_SYNTH, A_CONTRA]), _llm(tail, payload), _cfg())
+    assert rec.verdict == "pass"
+    assert "not code-witnessed" in rec.basis and "grounder credit" in rec.basis
+
+
 async def test_fabricated_quote_uncertain():
     tail = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | BASIS: claimed"
     payload = {"asserted_property": "temperature-independent", "subject_phrase": "YbZn2GaO5 noise PSD",
@@ -590,8 +601,15 @@ async def ground_claim(
     srcs = [Source(locator=a.url, title=a.title, url=a.url, year=str(a.published)[:4], relation="independent")
             for a in deduped]
     basis = tail["basis"]
+    if independent_sources >= 1:
+        # §8 honest boundary IN THE ARTIFACT A HUMAN READS: the credited count is presence + on-property
+        # topicality, NOT entailment, NOT independence. The field name (`independent_sources`) and
+        # relation="independent" are kept for gate-compat, so the basis is the only place this is said.
+        basis = (f"{basis} [grounder credit: {independent_sources} retrieved source(s) carrying a "
+                 f"code-witnessed verbatim on-property passage; entailment & independence are the model's "
+                 f"label, not code-witnessed]")
     if contradicted:
-        basis = f"CONTRADICTION: {contradiction_quote} — {basis}"   # surfaced loud (math-claim handling unchanged)
+        basis = f"CONTRADICTION: {contradiction_quote} — {basis}"   # prefix kept FIRST (math-claim handling unchanged)
 
     return CheckRecord(
         lens="grounder", verdict=verdict, basis=basis, sources=srcs,
@@ -604,7 +622,7 @@ Note: `_parse_source_labels` (grounder.py:13) is now unused (the `SOURCES` tail 
 - [ ] **Step 6: Run the new agent tests to verify they pass**
 
 Run: `conda run -n cosci-reproduce python -m pytest tests/test_grounding_support_agent.py -q`
-Expected: PASS (8 passed).
+Expected: PASS (9 passed).
 
 - [ ] **Step 7: Update the existing `ground_claim` fixtures that relied on retrieval-existence credit**
 
@@ -738,14 +756,14 @@ git commit -m "grounding tier-2: code-witnessed grounder support (citations JSON
 - §5 property floor + UNION subtractor + `_retrieval_saturated_tokens` + Guards 1/2 + thin-corpus fix → Task 2. ✓
 - §6 contradiction guard (admissible-only, force pass→uncertain, CONTRADICTION: basis) → Task 3 Step 5 + `test_contradiction_guard_forces_uncertain_not_pass`. ✓
 - §7 dedup (`normalize_id`/title) + code cap + min(llm,code) → Task 3 `_dedup_articles` + `test_dedup_preprint_and_published_count_once`. ✓
-- §8 honest rename (documentation/basis, field name unchanged) → basis text in Task 3; `relation="independent"` kept (no schema change). ✓
+- §8 honest rename (documentation/basis, field name unchanged) → basis suffix in Task 3 Step 5 (gated `independent_sources >= 1`) + `test_pass_basis_carries_honest_boundary`; `relation="independent"` kept (no schema change). The honest boundary now lives in the artifact a human reads, not just docstrings. ✓
 - §9 fail-closed + gate purity (`artifact.py` / `map_support_to_verdict` untouched) → Global Constraints + `test_gate_purity_pass_requires_independent_at_least_one` + `test_backend_off_uncertain`. ✓
 - §10 tests incl. thin-corpus probe + co-saturation fail-closed → Task 2 `test_support_quote_thin_corpus_union_closes_leak` (uses a *leaky* property — `asserted_property` smuggling the subject formula — so it genuinely exercises saturation-alone=pass vs union=fail), Task 3 `test_thin_corpus_formula_leak_uncertain`; co-saturation recall-drop is covered by Guard 2 (`test_support_quote_guard2_property_all_subject`). ✓
 - §12 slices 1 (pure gate+floor) / 2 (agent wiring) → Tasks 1+2 / Task 3. ✓
 
 **2. Placeholder scan:** No TBD/TODO; every code step shows full code; every run step shows the exact command + expected result. ✓
 
-**Co-saturation caveat baked into the fixtures (important for the implementer/reviewer):** the property floor subtracts tokens appearing in ≥`0.6` of the retrieved abstracts. On a *small* or *uniformly supportive* corpus the PROPERTY tokens themselves co-saturate → `prop_distinctive` empties → Guard 2 → uncertain (fail-closed, by design — §2/§5). Every test that must reach `pass` therefore uses a corpus where the supporting articles are a minority that keeps a property token below the saturation threshold (e.g. 5-article `FakeBackend` with 2 supporters; 3-article agent backend where `independent` sits in 1 of 3). This is not test-rigging — it mirrors real retrieval (many subject-topical papers, few stating the exact property) and is the honest reason v1 promotes rarely.
+**Co-saturation is the deliberate fail-closed price of ungameable subtraction (decided, not a bug to patch):** the property floor subtracts tokens appearing in ≥`0.6` of the retrieved abstracts. On a *small* or *uniformly supportive* corpus the PROPERTY tokens themselves co-saturate → `prop_distinctive` empties → Guard 2 → uncertain. A "refine-never-empty" tweak (subject_phrase primary, restore saturation-removed tokens) was proposed and **rejected**: it reopens a *rich-corpus* leak the union closes — a model emitting `asserted_property="<formula>"`, `subject_phrase=""` would have the saturated formula restored and a formula-only quote credited. Saturation catches the formula in a rich corpus *regardless of what the model emits*; that model-independence is exactly why the union is fail-closed and refine-never-empty is not. So the union stays, and the recall hit (a well-corroborated/near-textbook property landing `uncertain`) is **disclosed honestly** (§2/§5/§10 + the basis suffix), with a genuine fix — needing a *non-saturation* subject signal — deferred to the ≥2 slice (T2-D9), where corroboration is the right lever anyway. Every test that must reach `pass` therefore uses a corpus where the supporting articles are a minority keeping a property token below threshold (5-article `FakeBackend` with 2 supporters; 3-article agent backend where `independent` sits in 1 of 3) — not test-rigging, it mirrors real retrieval (many subject-topical papers, few stating the exact property) and is the honest reason v1 promotes rarely.
 
 **3. Type consistency:** `_quote_admissible(quote, source_text, min_tokens)`, `_support_quote_valid(quote, source_text, claim_statement, asserted_property, subject_tokens, min_tokens)`, `_retrieval_saturated_tokens(articles, frac)` — same signatures in their definitions (Tasks 1–2) and their call sites (Task 3). `checked_body` returns `(tail, body)`; `tail` keys are lowercased (`tail["support"]`, `tail["independent_sources"]`, `tail["basis"]`) matching `parse._row`. `_extract_label`/`_extract_json`/`references.normalize_id`/`references.detect_kind` used with their real signatures. `Source`/`CheckRecord`/`Article` fields match `artifact.py`/`web_search.py`. ✓
 
