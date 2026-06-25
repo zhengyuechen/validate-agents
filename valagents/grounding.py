@@ -142,18 +142,23 @@ def _retrieval_saturated_tokens(articles, frac: float) -> set[str]:
 
 def _support_quote_valid(quote: str, source_text: str, claim_statement: str, asserted_property: str,
                          subject_tokens: set[str], min_tokens: int) -> bool:
-    """§4/§5 supports-only gate = _quote_admissible AND the on-property floor. `subject_tokens` is the
-    caller-formed UNION (retrieval-saturated ∪ LLM subject_phrase tokens). Witnesses on-property topicality,
-    NOT entailment — a polarity flip carrying the distinctive word passes; direction stays the model's label."""
+    """§4/§5 supports-only gate = _quote_admissible AND the on-property floor. The quote must contain
+    EVERY distinctive property token (require-ALL, T2-D11) — a compound property like 'temperature-independent'
+    tokenizes to {temperature, independent}; requiring only one fragment lets an off-property quote
+    ('temperature variation' of a different observable; 'independent' in an unrelated sense) earn credit.
+    `subject_tokens` is the caller-formed union (saturated ∪ subject_phrase); subtracting it is a RECALL aid
+    (don't force the quote to restate the subject), not the soundness mechanism. Witnesses on-property
+    topicality, NOT entailment — a polarity flip carrying the full property phrase passes; direction is the
+    model's label."""
     if not _quote_admissible(quote, source_text, min_tokens):
         return False
     prop = _content_tokens(asserted_property)
     if not prop <= _content_tokens(claim_statement):       # Guard 1: property must be claim-derived
         return False
-    prop_distinctive = prop - subject_tokens               # subtract the union subject
+    prop_distinctive = prop - subject_tokens               # subtract subject (recall aid, not soundness)
     if not prop_distinctive:                               # Guard 2: non-vacuous
         return False
-    return bool(_content_tokens(quote) & prop_distinctive)  # on-property overlap
+    return prop_distinctive <= _content_tokens(quote)      # require ALL distinctive tokens (T2-D11)
 
 
 # The conditions parser's OWN ladders (G-D5b/F3) — NEVER SCALE_TABLE (whose K is energy-via-k_B, T is Tesla).

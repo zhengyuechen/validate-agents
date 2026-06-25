@@ -93,20 +93,22 @@ def test_support_quote_guard2_property_all_subject():
         "the noise PSD of YbZn2GaO5", "noise PSD", {"ybzn2gao5", "psd", "noise"}, 6) is False
 
 
-def test_support_quote_thin_corpus_union_closes_leak():
-    # THE THIN-CORPUS PROBE (§10). The model emits a property that SMUGGLES the subject formula
-    # ('YbZn2GaO5 temperature-independent'). On a thin corpus the formula is in only 1 of 3 abstracts,
-    # so saturation-alone does NOT subtract it → it survives in prop_distinctive → a formula-only quote
-    # FALSELY passes (the leak). The UNION (subject_phrase carries 'ybzn2gao5') subtracts it → fails.
-    arts = [_Art("ybzn2gao5 noise psd temperature-independent below 1 k"),
-            _Art("unrelated spin liquid candidate magnetization"),
-            _Art("another frustrated magnet heat capacity")]
-    saturated = _retrieval_saturated_tokens(arts, 0.6)        # 'ybzn2gao5' in 1/3 → NOT saturated → {} here
-    assert "ybzn2gao5" not in saturated
-    leaky_prop = "YbZn2GaO5 temperature-independent"          # property smuggles the subject formula (⊆ CLAIM)
-    formula_only = "single crystals of YbZn2GaO5 were grown by floating zone in this study here"
-    # saturation-alone: the formula survives in prop_distinctive → formula-only quote PASSES (the leak)
-    assert _support_quote_valid(formula_only, formula_only, CLAIM, leaky_prop, saturated, 6) is True
-    # UNION: subject_phrase subtracts 'ybzn2gao5' → quote is off the distinctive property → FAILS (leak closed)
-    union = saturated | _content_tokens("YbZn2GaO5 noise PSD")
-    assert _support_quote_valid(formula_only, formula_only, CLAIM, leaky_prop, union, 6) is False
+def test_support_quote_compound_fragment_rejected():
+    # T2-D11 CRITICAL regression: a compound property ('temperature-independent' → {temperature, independent})
+    # must NOT be credited by a quote sharing only ONE fragment. require-ALL closes this; any-overlap leaked.
+    off_observable = "The magnetization shows strong temperature variation across the measured range here"   # only 'temperature'
+    unrelated_sense = "The reported results were independent of the specific growth batch used here today"     # only 'independent'
+    genuine = "We report the noise PSD is temperature-independent below 1 K in this material here"            # both
+    assert _support_quote_valid(off_observable, off_observable, CLAIM, PROP, SUBJ_UNION, 6) is False
+    assert _support_quote_valid(unrelated_sense, unrelated_sense, CLAIM, PROP, SUBJ_UNION, 6) is False
+    assert _support_quote_valid(genuine, genuine, CLAIM, PROP, SUBJ_UNION, 6) is True
+
+
+def test_support_quote_subject_subtraction_aids_recall():
+    # Under require-ALL the subject subtraction is a RECALL aid: a genuine quote stating the full distinctive
+    # property but OMITTING the subject formula still passes once the subject is subtracted; without
+    # subtraction the same quote false-rejects (it would be forced to restate 'ybzn2gao5').
+    leaky_prop = "YbZn2GaO5 temperature-independent"                       # property names the subject too (⊆ CLAIM)
+    genuine = "the noise PSD is temperature-independent below 1 K in this material"   # omits 'YbZn2GaO5'
+    assert _support_quote_valid(genuine, genuine, CLAIM, leaky_prop, set(), 6) is False          # no subtraction → forced to restate subject → reject
+    assert _support_quote_valid(genuine, genuine, CLAIM, leaky_prop, {"ybzn2gao5"}, 6) is True   # subject subtracted → both present → pass
