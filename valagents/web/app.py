@@ -27,7 +27,7 @@ def default_llm_factory(cfg: Config):
 
 
 def _json_path(results_base: str, run_id: str) -> Path:
-    return Path(results_base) / f"{run_id}.json"
+    return Path(results_base) / "runs" / f"{run_id}.json"
 
 
 def _load_json(path: Path, default):
@@ -60,7 +60,7 @@ def _coerce_references(value: str | None, results_base: str, run_id: str) -> str
 
 
 def _read_run(results_base: str, run_id: str) -> dict:
-    base = Path(results_base)
+    base = Path(results_base) / "runs"
     artifact_path = base / f"{run_id}.json"
     if not artifact_path.exists():
         raise HTTPException(404, f"run '{run_id}' not found")
@@ -162,7 +162,7 @@ def create_app(
     @app.get("/api/runs")
     def list_runs():
         out = []
-        for name in sorted(glob.glob(f"{results_base}/*.json"), reverse=True):
+        for name in sorted(glob.glob(f"{results_base}/runs/*.json"), reverse=True):
             summary = _run_summary(Path(name))
             if summary is not None:
                 out.append(summary)

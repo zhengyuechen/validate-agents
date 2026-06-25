@@ -37,9 +37,11 @@ def test_web_app_serves_index_config_and_artifact(tmp_path):
         formal_claim=FormalClaim(statement="X changes Y", regime="low noise", falsifiable=True),
         finalized=True,
     )
-    (results / "run-1.json").write_text(art.model_dump_json(indent=2))
-    (results / "run-1.md").write_text("# Validation Report\n")
-    (results / "run-1.bib").write_text("@article{run1}\n")
+    runs_dir = results / "runs"
+    runs_dir.mkdir()
+    (runs_dir / "run-1.json").write_text(art.model_dump_json(indent=2))
+    (runs_dir / "run-1.md").write_text("# Validation Report\n")
+    (runs_dir / "run-1.bib").write_text("@article{run1}\n")
 
     app = create_app(config_path=str(config_path), results_base=str(results))
     client = TestClient(app)

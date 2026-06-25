@@ -298,14 +298,16 @@ async def run_cli(
     slug = run_id or _slug(seed)
     run_log.bind(out / ".logs" / f"{slug}.jsonl")
 
-    art = await run(seed, llm, cfg, backend=backend)
+    art = await run(seed, llm, cfg, backend=backend, run_id=slug)
     audit_map = await audit_narrative_refs(art, citeauditor)
     asserted = [r.reference for r in audit_map.values() if r.status == "resolved" and r.reference]
     refs = await build_references(art, references_path, resolver, asserted_refs=asserted)
 
-    json_path = out / f"{slug}.json"
-    report_path = out / f"{slug}.md"
-    bib_path = out / f"{slug}.bib"
+    runs_dir = out / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    json_path = runs_dir / f"{slug}.json"
+    report_path = runs_dir / f"{slug}.md"
+    bib_path = runs_dir / f"{slug}.bib"
     json_path.write_text(art.model_dump_json(indent=2))
     report_path.write_text(render_report(art, refs, audit_map))
     bib_path.write_text(to_bibtex(refs))

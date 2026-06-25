@@ -155,7 +155,7 @@ def _apply_repair_statements(art: IdeaArtifact, repaired: dict | None, targets: 
             claim.statement = new_statements[claim.id]
 
 
-async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config, tick: int, resolver=None) -> None:
+async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config, tick: int, resolver=None, run_id=None) -> None:
     art = store.current
     if art.formal_claim is None:
         return
@@ -239,8 +239,8 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
                 "claim": claim_id,
                 "verdict": record.verdict,
             })
-    await run_magnitude_checks(store, llm, cfg, tick=tick + 500, resolver=resolver)
-    await run_simulation_checks(store, llm, cfg, tick=tick + 700)
+    await run_magnitude_checks(store, llm, cfg, tick=tick + 500, resolver=resolver, run_id=run_id)
+    await run_simulation_checks(store, llm, cfg, tick=tick + 700, run_id=run_id)
     plan = await design_validation(art, llm, cfg)
     store.set("validation_plan", plan)
     if plan is not None:
@@ -251,7 +251,21 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
         })
 
 
-async def run_magnitude_checks(store, llm, cfg, tick: int = 0, resolver=None) -> None:
+def _computations_dir(cfg, run_id, *parts) -> str | None:
+    """Per-run sandbox-artifacts dir: <results>/computations/<run_id>/<parts...>. Grouped by RUN,
+    not by category, so runs don't collide. Falls back to <results>/computations/<parts...> when
+    run_id is None (callers that don't pass a run id, e.g. tests) — backward-compatible."""
+    base = getattr(cfg, "results_dir", None)
+    if not base:
+        return None
+    segs = [str(base), "computations"]
+    if run_id:
+        segs.append(str(run_id))
+    segs.extend(str(p) for p in parts)
+    return "/".join(segs)
+
+
+async def run_magnitude_checks(store, llm, cfg, tick: int = 0, resolver=None, run_id=None) -> None:
     art = store.current
     # L2-D11: drop prior bound_check claims (and their checks) before re-injecting, so repeated runs
     # across repair iterations do not accumulate duplicate bound claims (mirrors red_team overwriting attacks).
@@ -266,7 +280,7 @@ async def run_magnitude_checks(store, llm, cfg, tick: int = 0, resolver=None) ->
         from valagents.sandbox.executor import run_plan
         from valagents.computation import verdict_to_attack, verdict_to_check
         from valagents.agents.value_grounder import ground_plan
-        adir = f"{cfg.results_dir}/computations/magnitude" if getattr(cfg, "results_dir", None) else None
+        adir = _computations_dir(cfg, run_id, "magnitude")
         verdict = run_plan(plan, cfg, artifacts_dir=adir)
         store.record({"event": "magnitude_executed", "kind": plan.comparison_kind,
                       "verdict": verdict.verdict, "computed": verdict.measured})
@@ -304,7 +318,7 @@ async def run_magnitude_checks(store, llm, cfg, tick: int = 0, resolver=None) ->
         tick += 1
 
 
-async def run_simulation_checks(store, llm, cfg, tick: int = 0) -> None:
+async def run_simulation_checks(store, llm, cfg, tick: int = 0, run_id=None) -> None:
     art = store.current
     claims = [c for c in art.claim_graph if c.type == "mechanistic"][:3]   # no-op when none; cap at 3
     for claim in claims:
@@ -313,7 +327,7 @@ async def run_simulation_checks(store, llm, cfg, tick: int = 0) -> None:
             continue
         from valagents.sandbox.executor import run_plan
         from valagents.computation import verdict_to_sim_attack
-        adir = f"{cfg.results_dir}/computations/simulation/{claim.id}" if getattr(cfg, "results_dir", None) else None
+        adir = _computations_dir(cfg, run_id, "simulation", claim.id)
         verdict = run_plan(plan, cfg, artifacts_dir=adir)
         store.record({"event": "simulation_executed", "claim": claim.id,
                       "verdict": verdict.verdict, "computed": verdict.measured})
@@ -327,7 +341,7 @@ async def run_simulation_checks(store, llm, cfg, tick: int = 0) -> None:
         tick += 1
 
 
-async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int) -> None:
+async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int, run_id=None) -> None:
     """Promote each known limit into a load_bearing mathematical AtomicClaim and prove it."""
     art = store.current
     limits = art.known_limits
@@ -373,7 +387,7 @@ async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int)
         if plan is not None:
             from valagents.sandbox.executor import run_plan
             from valagents.computation import verdict_to_check
-            adir = f"{cfg.results_dir}/computations/{claim_id}" if getattr(cfg, "results_dir", None) else None
+            adir = _computations_dir(cfg, run_id, claim_id)
             verdict = run_plan(plan, cfg, artifacts_dir=adir)
             store.record({"event": "limit_executed", "claim": claim_id,
                           "verdict": verdict.verdict, "computed": verdict.measured})
@@ -384,7 +398,7 @@ async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int)
         claim.exhausted = True
 
 
-async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
+async def run(raw_idea: str, llm, cfg: Config, backend=None, run_id=None) -> IdeaArtifact:
     store = ArtifactStore(IdeaArtifact(raw_idea=raw_idea))
     if not await run_entry_gates(store, raw_idea, backend, llm, cfg):
         return store.current
@@ -395,8 +409,8 @@ async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
         resolver = LiveFetcher()
 
     await run_claim_checks(store, backend, llm, cfg)
-    await _whole_artifact_lenses(store, backend, llm, cfg, tick=1000, resolver=resolver)
-    await inject_limit_checks(store, llm, cfg, tick=1500)
+    await _whole_artifact_lenses(store, backend, llm, cfg, tick=1000, resolver=resolver, run_id=run_id)
+    await inject_limit_checks(store, llm, cfg, tick=1500, run_id=run_id)
 
     while store.current.repairs_spent < cfg.gate.repair_cap:
         targets = _repair_targets(store.current)
@@ -411,7 +425,7 @@ async def run(raw_idea: str, llm, cfg: Config, backend=None) -> IdeaArtifact:
 
         version = store.current.version_id
         await run_claim_checks(store, backend, llm, cfg, tick0=2000 * version)
-        await _whole_artifact_lenses(store, backend, llm, cfg, tick=3000 * version, resolver=resolver)
+        await _whole_artifact_lenses(store, backend, llm, cfg, tick=3000 * version, resolver=resolver, run_id=run_id)
 
     store.current.finalized = True
     verdict = await arbitrate(store.current, llm, cfg)

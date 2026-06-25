@@ -1,14 +1,27 @@
 import json as _json
 import pytest
-from valagents.scheduler import run_claim_checks
+from valagents.scheduler import run_claim_checks, _computations_dir
 from valagents.store import ArtifactStore
 from valagents.artifact import IdeaArtifact, FormalClaim, AtomicClaim
+from valagents.config import Config
 from valagents.web_search import Article
 from tests.fake_llm import FakeLLM
 
 
 def _grounder_body(tail: str, payload: dict) -> str:
     return tail + "\n```json\n" + _json.dumps(payload) + "\n```"
+
+
+def test_computations_dir_grouped_by_run():
+    cfg = Config(default_model="fake", results_dir="results")
+    # with a run id -> computations are scoped UNDER the run (by run, not by category)
+    assert _computations_dir(cfg, "run-1", "magnitude") == "results/computations/run-1/magnitude"
+    assert _computations_dir(cfg, "run-1", "simulation", "m1") == "results/computations/run-1/simulation/m1"
+    assert _computations_dir(cfg, "run-1", "L1") == "results/computations/run-1/L1"
+    # no run id -> falls back to the old category-only layout (backward-compatible for callers w/o a run id)
+    assert _computations_dir(cfg, None, "magnitude") == "results/computations/magnitude"
+    # no results_dir -> sandbox-artifacts disabled
+    assert _computations_dir(Config(default_model="fake", results_dir=""), "run-1", "magnitude") is None
 
 
 class FakeBackend:
