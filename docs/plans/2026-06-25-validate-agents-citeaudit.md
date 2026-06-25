@@ -108,7 +108,7 @@ def test_crossref_candidates_parse():
          "author": [{"given": "C.", "family": "Zachos"}, {"given": "D.", "family": "Fairlie"}],
          "published-print": {"date-parts": [[2005]]}, "DOI": "10.1142/5287"},
         {"title": [], "author": []},  # titleless item -> skipped
-    ]}
+    ]}}
     cands = _crossref_candidates(data)
     assert len(cands) == 1
     assert cands[0].title == "Quantum Mechanics in Phase Space"

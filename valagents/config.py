@@ -13,6 +13,11 @@ class GroundCfg(BaseModel):
     reference_rel_tol: float = 1e-3 # G-D9 scale-table both-directions reference-test tolerance
     subject_saturation_frac: float = 0.6  # token in >= this fraction of retrieved abstracts = subject/topic (Tier-2 §5)
 
+class CiteAuditCfg(BaseModel):
+    min_name_tokens: int = 3   # a narrative name needs >= this many content tokens to be "title-like" (CA-D5)
+    arxiv_rows: int = 5        # candidates fetched per arXiv title-search
+    crossref_rows: int = 5     # candidates fetched per Crossref title-search
+
 class GateCfg(BaseModel):
     min_attack_categories: int = 2  # categories the Red-team must attempt for internally_validated
     fanout_N: int = 2               # diverse-type lenses on a load-bearing uncertain node before finalize
@@ -41,6 +46,7 @@ class Config(BaseModel):
     models: dict[str, str] = {}
     temperature: dict[str, float] = {}
     grounding: GroundCfg = GroundCfg()
+    citeaudit: CiteAuditCfg = CiteAuditCfg()
     gate: GateCfg = GateCfg()
     sandbox: SandboxCfg = SandboxCfg()
     sim: SimCfg = SimCfg()

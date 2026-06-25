@@ -20,7 +20,7 @@ class Reference(BaseModel):
     authors: list[str] = []
     year: str = ""
     url: str = ""
-    origin: Literal["provided", "retrieved"] = "retrieved"
+    origin: Literal["provided", "retrieved", "asserted"] = "retrieved"
     relation: str = "unknown"
     unresolved: bool = False
     cited_by: list[str] = []
