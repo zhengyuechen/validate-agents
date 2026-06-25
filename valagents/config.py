@@ -7,6 +7,10 @@ from dotenv import load_dotenv
 
 class GroundCfg(BaseModel):
     backend: str = "arxiv"          # arxiv | none | tavily
+    supports_factor: float = 2.0    # ratio < this AND conditions-confirmed -> supports (G-D7)
+    contradict_factor: float = 10.0 # ratio >= this AND conditions-confirmed -> contradicts (G-D7)
+    quote_min_tokens: int = 6       # min word-tokens in a substantial referent-binding quote (§6)
+    reference_rel_tol: float = 1e-3 # G-D9 scale-table both-directions reference-test tolerance
 
 class GateCfg(BaseModel):
     min_attack_categories: int = 2  # categories the Red-team must attempt for internally_validated
