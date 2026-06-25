@@ -24,7 +24,7 @@ class Article:
 
 @runtime_checkable
 class WebSearchBackend(Protocol):
-    async def search(self, query: str, max_results: int = 5) -> list[Article]:
+    async def search(self, query: str, max_results: int = 10) -> list[Article]:
         ...
 
 
@@ -52,7 +52,7 @@ def format_articles(articles: list[Article]) -> str:
     )
 
 
-async def search_articles(backend, query: str, max_results: int = 5) -> tuple[str, list[Article]]:
+async def search_articles(backend, query: str, max_results: int = 10) -> tuple[str, list[Article]]:
     """Search via ``backend`` and return both the formatted prompt string and the raw Article list.
     On any failure (no backend, network error, rate limit) return ("", []) so callers degrade
     gracefully — mirrors the fail-soft contract of safe_search."""
@@ -66,7 +66,7 @@ async def search_articles(backend, query: str, max_results: int = 5) -> tuple[st
         return "", []
 
 
-async def safe_search(backend, query: str, max_results: int = 5) -> str:
+async def safe_search(backend, query: str, max_results: int = 10) -> str:
     """Thin wrapper around search_articles; returns only the formatted string.
     On any failure (no backend, rate limit, network error) returns "" so callers
     degrade gracefully to parametric reasoning instead of failing the whole run."""
@@ -80,7 +80,7 @@ class ArxivBackend:
         self._retries = retries          # gentle outer retries on top of arxiv.Client's own
         self._backoff = backoff          # seconds; grows linearly per attempt
 
-    async def search(self, query: str, max_results: int = 5) -> list[Article]:
+    async def search(self, query: str, max_results: int = 10) -> list[Article]:
         import arxiv
         if self._client is None:
             page_size = max(1, min(max_results, self._page_size_cap))
@@ -117,7 +117,7 @@ class TavilyBackend:
     def __init__(self, api_key: str):
         self._api_key = api_key
 
-    async def search(self, query: str, max_results: int = 5) -> list[Article]:
+    async def search(self, query: str, max_results: int = 10) -> list[Article]:
         import httpx
         async with httpx.AsyncClient() as client:
             resp = await client.post(
