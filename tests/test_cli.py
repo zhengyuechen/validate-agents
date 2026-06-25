@@ -74,10 +74,10 @@ async def test_run_cli_accepts_explicit_run_id(tmp_path, cfg):
 
     out = await run_cli("seed with id", scripted(script), cfg, out_dir=str(tmp_path), run_id="web-run")
 
-    assert out["json_path"].endswith("web-run.json")
-    assert out["report_path"].endswith("web-run.md")
-    assert (tmp_path / ".logs" / "web-run.jsonl").parent.exists()
-    outputs_path = tmp_path / ".agent_outputs" / "web-run.jsonl"
+    assert out["json_path"].endswith("web-run/artifact.json")
+    assert out["report_path"].endswith("web-run/report.md")
+    assert (tmp_path / "web-run" / "logs.jsonl").exists()
+    outputs_path = tmp_path / "web-run" / "agent_outputs.jsonl"
     assert outputs_path.exists()
     outputs = [json.loads(line) for line in outputs_path.read_text().splitlines()]
     assert {row["agent"] for row in outputs} >= {"formalizer", "faithfulness", "decomposer"}

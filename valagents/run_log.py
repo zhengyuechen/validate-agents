@@ -1,13 +1,14 @@
 """Lightweight per-run event log.
 
 A run binds a :class:`RunLogger` for the duration of its execution; any module can
-then call :func:`emit` to append a structured event to ``<results>/.logs/<run_id>.jsonl``
+then call :func:`emit` to append a structured event to ``<results>/<run_id>/logs.jsonl``
 without threading a logger through agent signatures. The binding lives in a
 ``contextvars.ContextVar``, so concurrent runs (each its own asyncio task) get
 isolated loggers and ``emit`` is a no-op when nothing is bound (e.g. in unit tests).
 
-Events are summaries, not full prompts/responses. Raw agent responses are written
-to a sibling ``.agent_outputs`` JSONL file for later prompt/debug improvement.
+Events are summaries, not full prompts/responses. Raw agent responses go to a sibling
+``agent_outputs.jsonl`` and the grounder's surveyed pool to ``candidates.jsonl`` — all
+three in the run's own folder ``<results>/<run_id>/``.
 """
 from __future__ import annotations
 
@@ -20,33 +21,29 @@ _current: contextvars.ContextVar = contextvars.ContextVar("valagents_run_logger"
 
 
 def events_path(results_base: str, run_id: str) -> Path:
-    return Path(results_base) / ".logs" / f"{run_id}.jsonl"
+    return Path(results_base) / run_id / "logs.jsonl"
 
 
 def agent_outputs_path(results_base: str, run_id: str) -> Path:
-    return Path(results_base) / ".agent_outputs" / f"{run_id}.jsonl"
+    return Path(results_base) / run_id / "agent_outputs.jsonl"
 
 
 def candidates_path(results_base: str, run_id: str) -> Path:
     """Per-run grounder candidate-pool audit log: the FULL set of articles retrieved per claim and each
     one's disposition (credited / quote_failed / contradicts / uncited) — the auditable record of what
     the grounder surveyed vs cited, including rejected and contradicting papers."""
-    return Path(results_base) / ".candidates" / f"{run_id}.jsonl"
+    return Path(results_base) / run_id / "candidates.jsonl"
 
 
 class RunLogger:
     def __init__(self, path) -> None:
+        # The bind path is the run's log file (<results>/<run_id>/logs.jsonl); the agent-output and
+        # candidate sinks are fixed-name siblings in that same run folder.
         self.path = str(path)
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         p = Path(self.path)
-        if p.parent.name == ".logs":
-            self.agent_output_path = str(p.parent.parent / ".agent_outputs" / p.name)
-            self.candidate_path = str(p.parent.parent / ".candidates" / p.name)
-        else:
-            self.agent_output_path = str(p.with_suffix(p.suffix + ".agent_outputs"))
-            self.candidate_path = str(p.with_suffix(p.suffix + ".candidates"))
-        Path(self.agent_output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(self.candidate_path).parent.mkdir(parents=True, exist_ok=True)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        self.agent_output_path = str(p.parent / "agent_outputs.jsonl")
+        self.candidate_path = str(p.parent / "candidates.jsonl")
 
     def emit(self, event: str, **fields) -> None:
         rec = {"time": datetime.now().isoformat(timespec="seconds"), "event": event, **fields}

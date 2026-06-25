@@ -37,11 +37,11 @@ def test_web_app_serves_index_config_and_artifact(tmp_path):
         formal_claim=FormalClaim(statement="X changes Y", regime="low noise", falsifiable=True),
         finalized=True,
     )
-    runs_dir = results / "runs"
-    runs_dir.mkdir()
-    (runs_dir / "run-1.json").write_text(art.model_dump_json(indent=2))
-    (runs_dir / "run-1.md").write_text("# Validation Report\n")
-    (runs_dir / "run-1.bib").write_text("@article{run1}\n")
+    run_dir = results / "run-1"
+    run_dir.mkdir()
+    (run_dir / "artifact.json").write_text(art.model_dump_json(indent=2))
+    (run_dir / "report.md").write_text("# Validation Report\n")
+    (run_dir / "references.bib").write_text("@article{run1}\n")
 
     app = create_app(config_path=str(config_path), results_base=str(results))
     client = TestClient(app)
@@ -83,8 +83,8 @@ def test_web_references_accept_existing_path_or_inline_ids(tmp_path):
 
     inline = _coerce_references("2401.12345, 10.1234/example", str(tmp_path), "run-2")
 
-    assert inline == str(tmp_path / ".references" / "run-2.txt")
-    assert (tmp_path / ".references" / "run-2.txt").read_text().splitlines() == [
+    assert inline == str(tmp_path / "run-2" / "references.txt")
+    assert (tmp_path / "run-2" / "references.txt").read_text().splitlines() == [
         "2401.12345",
         "10.1234/example",
     ]

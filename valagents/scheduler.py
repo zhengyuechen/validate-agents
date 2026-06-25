@@ -252,15 +252,16 @@ async def _whole_artifact_lenses(store: ArtifactStore, backend, llm, cfg: Config
 
 
 def _computations_dir(cfg, run_id, *parts) -> str | None:
-    """Per-run sandbox-artifacts dir: <results>/computations/<run_id>/<parts...>. Grouped by RUN,
-    not by category, so runs don't collide. Falls back to <results>/computations/<parts...> when
-    run_id is None (callers that don't pass a run id, e.g. tests) — backward-compatible."""
+    """Per-run sandbox-artifacts dir inside the run's own folder: <results>/<run_id>/computations/<parts...>.
+    Grouped by RUN (one folder per run holds everything), so runs don't collide. Falls back to
+    <results>/computations/<parts...> when run_id is None (callers that don't pass a run id, e.g. tests)."""
     base = getattr(cfg, "results_dir", None)
     if not base:
         return None
-    segs = [str(base), "computations"]
+    segs = [str(base)]
     if run_id:
         segs.append(str(run_id))
+    segs.append("computations")
     segs.extend(str(p) for p in parts)
     return "/".join(segs)
 

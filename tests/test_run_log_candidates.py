@@ -3,7 +3,7 @@
 The grounder surveys a retrieved pool per claim and credits only some of it. Before this trail the
 pool lived only in the runtime prompt and was unrecoverable — you could see what was CITED (in the
 artifact sources) but not what was SURVEYED-and-rejected or what CONTRADICTED. These tests pin the
-audit sink (.candidates/<run_id>.jsonl) and that each article gets the right disposition.
+audit sink (<run_id>/candidates.jsonl) and that each article gets the right disposition.
 """
 import json
 from pathlib import Path
@@ -28,18 +28,18 @@ def _reset_run_logger():
 
 
 def test_candidate_path_derived_from_logs_bind(tmp_path):
-    # bind to <base>/.logs/<id>.jsonl → candidate sink is the sibling <base>/.candidates/<id>.jsonl
-    logger = run_log.bind(tmp_path / ".logs" / "run-1.jsonl")
-    assert Path(logger.candidate_path) == tmp_path / ".candidates" / "run-1.jsonl"
+    # bind to <base>/<id>/logs.jsonl → candidate sink is the sibling <base>/<id>/candidates.jsonl
+    logger = run_log.bind(tmp_path / "run-1" / "logs.jsonl")
+    assert Path(logger.candidate_path) == tmp_path / "run-1" / "candidates.jsonl"
 
 
 def test_emit_candidates_writes_jsonl_record(tmp_path):
-    run_log.bind(tmp_path / ".logs" / "run-1.jsonl")
+    run_log.bind(tmp_path / "run-1" / "logs.jsonl")
     run_log.emit_candidates(
         "c1", tick=2, n_retrieved=2, n_credited=1, contradicted=False,
         candidates=[{"label": "A1", "title": "T", "url": "u", "published": "2025", "disposition": "credited"}],
     )
-    sink = tmp_path / ".candidates" / "run-1.jsonl"
+    sink = tmp_path / "run-1" / "candidates.jsonl"
     rec = json.loads(sink.read_text().splitlines()[0])
     assert rec["claim"] == "c1" and rec["tick"] == 2
     assert rec["n_retrieved"] == 2 and rec["n_credited"] == 1 and rec["contradicted"] is False
@@ -56,7 +56,7 @@ async def test_grounder_emits_per_article_dispositions(tmp_path):
     # A1 credited (on-property supports), A2 quote_failed (off-property supports), A3 contradicts,
     # A4 uncited (in the pool but in no citation). The credited supports + a valid contradicts also
     # exercises the pass→uncertain downgrade, so n_credited reflects the capped count.
-    run_log.bind(tmp_path / ".logs" / "run-x.jsonl")
+    run_log.bind(tmp_path / "run-x" / "logs.jsonl")
     a_uncited = Article(title="z", summary="an unrelated frustrated magnet heat capacity study",
                         url="http://arxiv.org/abs/2501.09999v1", published="2025-09-09")
     tail = "CLAIM: c1 | SUPPORT: supported | INDEPENDENT_SOURCES: 1 | BASIS: mixed"
@@ -70,7 +70,7 @@ async def test_grounder_emits_per_article_dispositions(tmp_path):
     await ground_claim(CLAIM, FC, _Backend([A_SUPPORT, A_SYNTH, A_CONTRA, a_uncited]),
                        _llm(tail, payload), _cfg())
 
-    rec = json.loads((tmp_path / ".candidates" / "run-x.jsonl").read_text().splitlines()[0])
+    rec = json.loads((tmp_path / "run-x" / "candidates.jsonl").read_text().splitlines()[0])
     disp = {c["label"]: c["disposition"] for c in rec["candidates"]}
     assert disp == {"A1": "credited", "A2": "quote_failed", "A3": "contradicts", "A4": "uncited"}
     assert rec["claim"] == "c1" and rec["n_retrieved"] == 4
@@ -83,14 +83,14 @@ async def test_grounder_emits_per_article_dispositions(tmp_path):
 async def test_grounder_marks_inadmissible_contradiction_unverified(tmp_path):
     # a CONTRADICTS direction whose quote is not in the abstract is not counted as a contradiction
     # (contradicted stays False) but is still logged — as contradicts_unverified, not dropped.
-    run_log.bind(tmp_path / ".logs" / "run-y.jsonl")
+    run_log.bind(tmp_path / "run-y" / "logs.jsonl")
     tail = "CLAIM: c1 | SUPPORT: uncertain | INDEPENDENT_SOURCES: 0 | BASIS: claimed"
     payload = {"citations": [
         {"label": "A3", "direction": "contradicts",
          "quote": "A fabricated sentence that appears nowhere in the A3 abstract at all."}]}
     await ground_claim(CLAIM, FC, _Backend([A_SUPPORT, A_SYNTH, A_CONTRA]), _llm(tail, payload), _cfg())
 
-    rec = json.loads((tmp_path / ".candidates" / "run-y.jsonl").read_text().splitlines()[0])
+    rec = json.loads((tmp_path / "run-y" / "candidates.jsonl").read_text().splitlines()[0])
     disp = {c["label"]: c["disposition"] for c in rec["candidates"]}
     assert disp["A3"] == "contradicts_unverified"
     assert rec["contradicted"] is False
@@ -101,7 +101,7 @@ async def test_ground_claim_records_query_block(tmp_path, monkeypatch):
     # the planned query (rung/archives/rendered) is recorded alongside the pool, and the scoped
     # query actually reaches the backend — closing "here's the query it ran, the pool, what it cited".
     from valagents.web_search import ArxivBackend
-    run_log.bind(tmp_path / ".logs" / "run-q.jsonl")
+    run_log.bind(tmp_path / "run-q" / "logs.jsonl")
     queries = []
     async def fake_search(self, query, max_results=10):
         queries.append(query)
@@ -115,7 +115,7 @@ async def test_ground_claim_records_query_block(tmp_path, monkeypatch):
                 "```json\n{\"citations\": []}\n```")
     await ground_claim(CLAIM, FC, ArxivBackend(), FakeLLM(router), _cfg())
 
-    rec = json.loads((tmp_path / ".candidates" / "run-q.jsonl").read_text().splitlines()[0])
+    rec = json.loads((tmp_path / "run-q" / "candidates.jsonl").read_text().splitlines()[0])
     assert rec["query"]["rung"] == "scoped"
     assert rec["query"]["archives"] == ["cond-mat"]
     assert "cat:cond-mat*" in rec["query"]["rendered"] and rec["query"]["widened"] is False

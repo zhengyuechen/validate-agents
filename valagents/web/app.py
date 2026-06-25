@@ -27,7 +27,7 @@ def default_llm_factory(cfg: Config):
 
 
 def _json_path(results_base: str, run_id: str) -> Path:
-    return Path(results_base) / "runs" / f"{run_id}.json"
+    return Path(results_base) / run_id / "artifact.json"
 
 
 def _load_json(path: Path, default):
@@ -44,9 +44,9 @@ def _coerce_references(value: str | None, results_base: str, run_id: str) -> str
     path = Path(text).expanduser()
     if path.exists():
         return str(path)
-    refs_dir = Path(results_base) / ".references"
-    refs_dir.mkdir(parents=True, exist_ok=True)
-    inline_path = refs_dir / f"{run_id}.txt"
+    run_dir = Path(results_base) / run_id            # inline refs live in the run's own folder
+    run_dir.mkdir(parents=True, exist_ok=True)
+    inline_path = run_dir / "references.txt"
     if text.startswith("["):
         inline_path.write_text(text)
     else:
@@ -60,13 +60,13 @@ def _coerce_references(value: str | None, results_base: str, run_id: str) -> str
 
 
 def _read_run(results_base: str, run_id: str) -> dict:
-    base = Path(results_base) / "runs"
-    artifact_path = base / f"{run_id}.json"
+    run_dir = Path(results_base) / run_id
+    artifact_path = run_dir / "artifact.json"
     if not artifact_path.exists():
         raise HTTPException(404, f"run '{run_id}' not found")
     artifact = _load_json(artifact_path, {})
-    report_path = base / f"{run_id}.md"
-    bib_path = base / f"{run_id}.bib"
+    report_path = run_dir / "report.md"
+    bib_path = run_dir / "references.bib"
     return {
         "id": run_id,
         "seed": artifact.get("raw_idea", ""),
@@ -88,7 +88,7 @@ def _run_summary(path: Path) -> dict | None:
     stat = path.stat()
     claims = artifact.get("claim_graph") or []
     return {
-        "id": path.stem,
+        "id": path.parent.name,                      # <results>/<run_id>/artifact.json -> run_id
         "seed": artifact.get("raw_idea", ""),
         "status": artifact.get("status", "unknown"),
         "maturity": artifact.get("maturity"),
@@ -162,7 +162,7 @@ def create_app(
     @app.get("/api/runs")
     def list_runs():
         out = []
-        for name in sorted(glob.glob(f"{results_base}/runs/*.json"), reverse=True):
+        for name in sorted(glob.glob(f"{results_base}/*/artifact.json"), reverse=True):
             summary = _run_summary(Path(name))
             if summary is not None:
                 out.append(summary)
