@@ -55,11 +55,17 @@ No NLI/torch/transformers dependency exists today (`requirements.txt` has none; 
 
 - Define a Protocol `NLIScorer` with `score(premise: str, hypothesis: str) -> float` (entailment prob in `[0,1]`).
 - `faithfulness_check(raw_idea, formal_claim, llm, cfg, retried=False, nli_scorer=None)` — **`nli_scorer is None` → off → the current LLM self-judge runs unchanged** (today's behavior, no forced dep). When present, NLI **replaces** the LLM verdict.
-- A concrete `AlignScoreScorer` (in `valagents/nli.py`) **lazy-imports** the model on first `score` call; the CLI constructs it only when configured (mirrors `LiveFetcher` built only when grounding is on). Tests inject a fake `NLIScorer` returning canned floats — no model, no network.
+- A concrete `MNLIScorer` (in `valagents/nli.py`) wrapping **`roberta-large-mnli`** via `transformers` (NF-D4, model choice): it yields a clean `P(entailment)` in `[0,1]` (the natural `score` semantics), and is lighter/more standard than AlignScore (AlignScore is the paper's top performer but a heavier specific package — offered as an optional alternative, not the default). **Lazy-imports** the model on first `score`; the CLI constructs it only when configured (mirrors `LiveFetcher`). Tests inject a fake `NLIScorer` returning canned floats — no model, no network.
 - Wire through `run_entry_gates(…, nli_scorer=None)` from `run(…)`; the CLI builds the scorer from config and passes it.
-- Fail-soft: an NLI scorer that raises (model load / inference error) is caught → treated as **`no`** (fail-closed block) with a recorded reason, never crashes the run. (Stricter than grounding's fail-*soft*-to-skip, because this gate's safe direction is to block.)
+- Fail-soft: an NLI scorer that raises → **`no`** (fail-closed block), recorded, never crashes. (Stricter than grounding's fail-*soft*-to-skip, because this gate's safe direction is to block.)
 
-Config: `FaithfulnessCfg{ nli_backend: str = "none" (none|alignscore), nli_threshold: float = 0.5 }` on `Config.faithfulness`; the CLI builds the scorer iff `nli_backend != "none"`.
+Config: `FaithfulnessCfg{ nli_backend: str = "none" (none|mnli|alignscore), nli_threshold: float = <set by the §5b probe> }` on `Config.faithfulness`; the CLI builds the scorer iff `nli_backend != "none"`.
+
+### 5b. PREREQUISITE — concordance probe before trusting/enabling NLI (was flag #6, now a gate)
+
+The AUC~92 that justifies the switch is on the paper's general/citation-text benchmark; physics formalizations ("the PSD of YbZn₂GaO₅ is temperature-independent") are **out-of-distribution** for an MNLI model — it may be near-random here too, in which case the switch trades one near-random judge for another *plus* a heavy dependency. So, mirroring the discipline applied to Popper's nulls: **before enabling NLI in any real run, run a small concordance probe** — a handful of real `(seed, formal)` pairs hand-labeled faithful / narrowed / drifted — and confirm the NLI verdict beats the LLM self-judge on them. That probe **also sets `nli_threshold` (NF-D6)**, which is otherwise an unvalidated guess. Ship the *capability* (this spec), but treat NLI-beats-LLM-on-physics as **unproven until the probe passes**; the threshold default is "set by the probe," not a fixed number.
+
+**Enablement note (NF-D5b):** off-by-default keeps the heavy dep optional, but the consequence is **off = the near-random gate the paper indicts stays in force.** The fix only lands when the user sets `nli_backend="mnli"` (after the probe) for real runs / the qual. The spec ships the capability; landing the improvement requires enabling it.
 
 ---
 
@@ -82,7 +88,7 @@ With NLI replacing the LLM, there is no generative back-translation. To avoid a 
 - **Entry-gate integration (`run_entry_gates`, fake scorer + FakeLLM):** NLI `no` → re-formalize once → NLI re-check → still `no` → run aborts with `verdict_class=="ill_posed"`, reason `unfaithful_drift`; NLI `narrowed` (persisting) → `unfaithful_narrowed`; NLI `yes` → run proceeds to decomposer. These mirror the existing entry-gate tests with the NLI verdict source.
 - **Regression:** `nli_backend="none"` → the existing faithfulness tests pass unchanged.
 - **Threshold knob:** the same score pair yields `yes` at `t=0.4` and `narrowed`/`no` at `t=0.7` — confirms the conservative-threshold lever.
-- (No test loads a real model; `AlignScoreScorer`'s lazy import is covered by a thin "constructs and lazy-imports on first call" test guarded/skipped if the optional dep is absent.)
+- (No test loads a real model; `MNLIScorer`'s lazy import is covered by a thin "constructs and lazy-imports on first call" test guarded/skipped if the optional dep is absent.)
 
 ---
 
@@ -92,12 +98,13 @@ Frozen, independent, reproducible adjudication at a **block-only** gate: NLI can
 ---
 
 ## 10. Files
-- `valagents/nli.py` (new) — `NLIScorer` Protocol, `AlignScoreScorer` (lazy import), the verdict-from-scores helper.
+- `valagents/nli.py` (new) — `NLIScorer` Protocol, `MNLIScorer` (`roberta-large-mnli`, lazy import; optional `AlignScoreScorer`), the verdict-from-scores helper.
 - `valagents/agents/faithfulness.py` — `faithfulness_check(…, nli_scorer=None)`; NLI path + LLM fallback + fail-soft.
 - `valagents/scheduler.py` — thread `nli_scorer` through `run_entry_gates` and `run`.
 - `valagents/cli.py` — build the scorer from `cfg.faithfulness` and pass it.
 - `valagents/config.py` — `FaithfulnessCfg{nli_backend, nli_threshold}`; `Config.faithfulness`.
-- `requirements.txt` — `alignscore`/`torch` as an **optional** extra (documented as opt-in, not a hard install).
+- `requirements.txt` — `transformers`/`torch` (for `roberta-large-mnli`) as an **optional** extra (opt-in, not a hard install); `alignscore` optional.
+- A small probe harness/script + a few labeled `(seed, formal)` pairs for §5b (not a unit test — a one-time validation gate before enablement).
 
 ---
 
@@ -105,7 +112,8 @@ Frozen, independent, reproducible adjudication at a **block-only** gate: NLI can
 - **NF-D1 (fail-closed block-only filter)** NLI feeds the existing entry gate, which only blocks (ill-posed). It never grants. Safe to import a model's judgment here.
 - **NF-D2 (bidirectional, count passing directions)** 2/1/0 directions ≥ threshold → yes/narrowed/no. Avoids committing to which entailment direction means "narrowed."
 - **NF-D3 (NOT a grounder credit-gate)** Standing Tier-2 decision, paper-confirmed (NLI collapses on partial support). NLI grants nothing; a future contradicts-downgrade-only grounder use is a separate slice.
-- **NF-D4 (injected, optional, LLM fallback)** `nli_scorer=None` → today's LLM self-judge. Heavy model lazy-imported, built by the CLI only when `nli_backend != "none"`; tests inject a fake. Net-new dep is opt-in.
+- **NF-D4 (injected, optional, LLM fallback; model = `roberta-large-mnli`)** `nli_scorer=None` → today's LLM self-judge. Concrete scorer wraps `roberta-large-mnli` (clean `P(entailment)`, lighter than AlignScore; AlignScore an optional alternative), lazy-imported, built by the CLI only when `nli_backend != "none"`; tests inject a fake. Net-new dep is opt-in.
+- **NF-D8 (concordance probe is a PREREQUISITE, not a flag)** NLI must beat the LLM self-judge on a small hand-labeled set of real physics `(seed, formal)` pairs before it is trusted/enabled; that probe sets `nli_threshold`. Until it passes, NLI-beats-LLM-on-physics is unproven (the AUC~92 is out-of-distribution). §5b.
 - **NF-D5 (scores in `back_translation`)** NLI-on skips the LLM call; `back_translation` carries `fwd/bwd/threshold` (leaner; loses prose). [flag]
 - **NF-D6 (conservative threshold knob)** `nli_threshold` default 0.5, tunable; biases toward blocking when uncertain (fail-closed). [flag — load-bearing given the partial-support collapse]
 - **NF-D7 (scorer error → `no`)** Fail-closed (block), stricter than grounding's fail-soft-to-skip, because the gate's safe direction is to block.
@@ -116,6 +124,6 @@ Frozen, independent, reproducible adjudication at a **block-only** gate: NLI can
 1. **NF-D6 threshold is load-bearing and unvalidated here.** The paper shows NLI collapses on partial support; 0.5 is a guess. False-`yes` (admit drift) vs false-block (reject faithful) trade off around `t`. Should the default be higher (more blocks, safer) given fail-closed intent? Is a *single* threshold for both directions right, or should `narrowed` need a margin between `s_fwd` and `s_bwd`?
 2. **NF-D2 count-directions vs a real subset test.** "Exactly one direction ≥ t → narrowed" assumes asymmetric entailment cleanly separates subset from drift. On dense physics text NLI may pass both directions spuriously (→ false `yes`) or neither (→ false `no`). Is the count rule robust, or does it need a confidence margin?
 3. **NF-D5 losing the prose back-translation.** The report's human-readable restatement is a real artifact for the qual. Is dropping it (scores only) acceptable, or should one LLM call be kept for the prose while NLI owns the verdict?
-4. **AlignScore specifically vs a generic MNLI model.** AlignScore is the paper's top performer but a specific package; a `roberta-large-mnli` via `transformers` is lighter/more standard. Which concrete model, and does the `score` semantics (AlignScore's alignment score vs MNLI's P(entailment)) change the threshold meaning?
-5. **Default off means the near-random judge stays the default.** The value only lands when the user enables NLI. Is shipping it off-by-default (no forced dep) the right call, or should the heavy dep be accepted to make the upgrade real by default?
-6. **Domain mismatch.** NLI models are trained on general text; physics formalizations ("the PSD of YbZn₂GaO₅ is temperature-independent") are out-of-distribution. The clear-split AUC ~92 may not transfer. Worth a small calibration probe on a few real seed↔formal pairs before trusting the threshold.
+4. ~~AlignScore vs MNLI~~ — **RESOLVED (NF-D4):** default `roberta-large-mnli` (clean `P(entailment)`, lighter); AlignScore optional.
+5. ~~Default off means the near-random judge stays the default~~ — **ACKNOWLEDGED (NF-D5b):** off-by-default keeps the dep optional; landing the fix requires enabling `nli_backend="mnli"` after the §5b probe. Stated explicitly, not silent.
+6. ~~Domain mismatch~~ — **ELEVATED to a prerequisite (§5b / NF-D8):** the concordance probe on real physics pairs must pass before trusting/enabling NLI; it also sets the threshold. No longer a flag — a gate.

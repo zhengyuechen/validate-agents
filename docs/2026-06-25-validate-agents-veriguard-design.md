@@ -18,6 +18,8 @@ VeriGuard's finding (from the paper): a deterministic post-condition check that 
 
 ## 2. Scope
 
+> **PREREQUISITE before building (VG-D8):** VeriGuard hardens *simulation* checks. Confirm simulation is a *used* path first — count `kind=="simulation"` vs `kind=="magnitude"` plans across recent real runs. If most runs emit magnitude plans and few emit simulation plans, VeriGuard is low ROI for its wiring; **defer it and go straight to the Popper machinery.** This is a cheap measurement that gates whether to build now (the author's flag #5, promoted to a go/no-go).
+
 **In scope:** simulation plans (`primitive in {ode_integrate, linear_stability}` — the only primitives `runner.py` implements, `_SIM_REQUIRED` at `runner.py:437`). The designer emits `result_postconditions`; the runner evaluates them against the per-grid observable series it already computes; a violation forces the verdict to `uncertain` and yields a counterexample that drives one re-emission.
 
 **Out of scope (decisions):**
@@ -47,6 +49,8 @@ Post-conditions are a **trust gate on the result, demote-only**:
 | `sign` | `want ∈ {nonneg, nonpos, positive, negative}` | every value satisfies the sign | a physical magnitude going negative |
 | `in_range` | `lo, hi` (floats) | every value in `[lo, hi]` | unphysical excursions |
 | `monotone` | `sweep_param` (a `param_sweep` key), `direction ∈ {increasing, decreasing}` | `obs` sorted by `sweep_param` is monotone within `conv_rtol` tolerance | non-monotone where physics demands monotonicity |
+
+**`monotone` on multi-axis sweeps (VG-D9):** when the grid has more than one swept axis (`param_sweep` × `init_sweep`, or multiple params), sorting `obs` by a single `sweep_param` mixes the other axes and makes monotonicity ill-defined. v1 **skips a `monotone` post-condition (skip+warn) whenever the grid varies any axis other than its `sweep_param`** — i.e. `monotone` only applies to a 1-D sweep over exactly `sweep_param`. A defensible marginalization (hold others fixed, check per-slice) is deferred. `finite`/`sign`/`in_range` are axis-agnostic and apply to any grid.
 
 Each post-condition: `{name: str, kind: str, ...params}`. Unknown `kind`, missing/ill-typed params, or a `monotone` referencing a non-swept param → that post-condition is **skipped with a recorded warning** (fail-open *on the post-condition itself* so a malformed contract never blocks a valid result — the trust-check is best-effort additive; the criterion still gates). The set is small and fixed; extend the table, not the LLM's freedom.
 
@@ -110,13 +114,16 @@ Pure-code trust-checking of the sandbox's own outputs; demote-only (never promot
 - **VG-D4 (one bounded re-emission)** A post-condition failure (not an ordinary uncertain) drives exactly one re-design with the concrete counterexample; the corrected result is kept only if its post-conditions hold; else `uncertain`. Cap=1, separate from `repair_cap`.
 - **VG-D5 (say-so seam is safe)** The LLM chooses the contract, but it is demote-only + code-evaluated + empty=no-op → no false-promote, no regression.
 - **VG-D6 (evaluate in-sandbox)** Post-conditions are checked inside `runner.py` where `detail` lives and at the security boundary; results returned as structured data.
-- **VG-D7 (malformed post-condition fails open on itself)** An unparseable/ill-referenced post-condition is skipped+warned, never blocks a valid result — the trust-check is additive; the criterion still gates.
+- **VG-D7 (malformed post-condition fails open on itself)** An unparseable/ill-referenced post-condition is skipped+warned, never blocks a valid result — the trust-check is additive; the criterion still gates. (Reviewer-confirmed correct: a malformed contract is the designer's bug, not the result's; demoting a valid result for a designer error would be fail-closed in the wrong place.)
+- **VG-D8 (build-prerequisite: confirm simulation is used)** Measure sim-vs-magnitude plan distribution across real runs before building; if simulation is rare, defer VeriGuard for the Popper machinery. §2.
+- **VG-D9 (monotone is 1-D-sweep-only in v1)** `monotone` skips+warns on any multi-axis grid; marginalized multi-axis monotonicity deferred. `finite`/`sign`/`in_range` are axis-agnostic. §4.
 
 ---
 
 ## 11. Reviewer-scrutiny flags (author's uncertainties — attack these)
 1. **VG-D4 distinguishing "post-condition demotion" from "ordinary uncertain":** the re-emission must fire on a *post-condition* failure, not on a sandbox error or a genuine `refute`. Is the condition (`result.ok and any failing pc`) the right trigger, and does re-emitting risk masking a genuine `refute` (no — `refute` has `matched=="refute"`, post-conditions are orthogonal)? Confirm a genuine refutation is never re-emitted away.
-2. **`monotone` tolerance & ordering:** sorting the grid by `sweep_param` and checking monotonicity within `conv_rtol` — is `conv_rtol` (0.1) the right tolerance, and how are multi-axis sweeps (param × init) handled (the spec assumes a single `sweep_param`; a 2-D sweep needs a marginalization rule)?
-3. **VG-D7 fail-open on malformed post-conditions vs the cardinal rule:** skipping a malformed post-condition is fail-open *on the trust-check* (not on the verdict). Is that the right call, or should a malformed contract from a designer be a demotion (stricter)? Author chose additive/no-regression; reviewer should weigh.
-4. **Does demote-to-uncertain interact with `_math_uncertainty_is_nonblocking`?** For a `mathematical` claim, an executor `uncertain` can be non-blocking if a proof pass exists (`artifact.py:139`). A post-condition-demoted executor uncertain on a math claim could thus be swallowed — is that correct (the math claim has another proof) or a hole?
-5. **Scope honesty:** is simulation-only enough to be worth the wiring, given how many runs actually use simulation plans vs magnitude? (If most real runs are magnitude, VG buys little until magnitude post-conditions land.)
+2. ~~`monotone` multi-axis~~ — **RESOLVED (VG-D9):** `monotone` is 1-D-sweep-only in v1 (skip+warn on multi-axis); the remaining open bit is whether `conv_rtol=0.1` is the right monotonicity tolerance.
+3. ~~VG-D7 fail-open vs cardinal rule~~ — **CONFIRMED correct by review:** a malformed contract is the designer's bug, not the result's; keep additive (demoting a valid result for a designer error is fail-closed in the wrong place).
+4. ~~demote-to-uncertain × `_math_uncertainty_is_nonblocking`~~ — **NON-ISSUE (reviewer-confirmed):** `run_simulation_checks` operates on mechanistic claims; `_math_uncertainty_is_nonblocking` is *math-only*. A post-condition-demoted uncertain lands on a mechanistic claim where the math-bypass never fires — the attack path doesn't connect.
+5. ~~Scope honesty (is simulation used?)~~ — **PROMOTED to a build-prerequisite (VG-D8 / §2):** measure sim-vs-magnitude before building; defer if simulation is rare.
+6. **(still live) The re-emission trigger (VG-D4):** confirm a genuine `refute` (`matched=="refute"`) is never re-emitted away — the re-emission must fire only on `result.ok and any failing pc`, orthogonal to a real refutation.
