@@ -48,10 +48,24 @@ def test_purely_definitional_roots_do_not_strict_validate():
                                 load_bearing=True, exhausted=True)
     assert art(claim_graph=[d("d1"), d("d2")]).status == "draft"   # accepted-but-unwitnessed -> not validated
 
-# --- entry gates (I3) ---
-def test_not_falsifiable():
-    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
+# --- FG-1: not_falsifiable is a code-witnessed LAST-RESORT, no longer an entry-gate on the LLM flag ---
+def test_not_falsifiable_when_nothing_landed():
+    # fires only when falsifiable=False AND no root received any landed check (demonstrably unassessable):
+    # a root with no checks (pending, not validatable) → not_falsifiable, outranking "uncovered".
+    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False),
+            claim_graph=[claim("c1", checks=[])])
     assert a.status == "needs_experiment" and a.blocker["reason"] == "not_falsifiable"
+
+def test_falsifiable_false_with_witness_validates():
+    # FG-1: a falsifiable=False artifact whose root carries a real code-witnessed check is NO LONGER
+    # blocked at entry — it flows to its real verdict (the flag is surfaced, not a gate).
+    assert art(formal_claim=FormalClaim(statement="x", falsifiable=False)).status == "internally_validated"
+
+def test_falsifiable_false_refuted_is_refuted():
+    # a landed contradiction on a falsifiable=False root → REFUTED (refutation precedes the last-resort).
+    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False),
+            claim_graph=[claim("c1", checks=[CheckRecord(lens="redteam", verdict="fail")])])
+    assert a.status == "refuted"
 
 def test_unfaithful_drift_after_retry():
     a = art(faithfulness=Faithfulness(verdict="no", retried=True))

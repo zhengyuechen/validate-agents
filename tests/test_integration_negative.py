@@ -39,9 +39,11 @@ async def test_unfalsifiable_seed_is_ill_posed(cfg):
         cfg,
         backend=FakeBackend(),
     )
+    # FG-1: falsifiable=False no longer blocks at entry. This genuinely ill-posed seed (it cannot be
+    # faithfully formalized as a testable claim) now flows past the falsifiability flag and is caught by
+    # the faithfulness gate instead — still ill_posed, no longer via a crude a-priori entry flag.
     assert art.status == "needs_experiment"
     assert art.blocker is not None
-    assert art.blocker["reason"] == "not_falsifiable"
     assert art.verdict_class == "ill_posed"
 
 

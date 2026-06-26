@@ -231,6 +231,15 @@ class IdeaArtifact(BaseModel):
             return any(ck.verdict == "pass" for ck in c.checks)
         return any(ck.verdict == "pass" and ck.independent_sources >= 1 for ck in c.checks)
 
+    def _has_any_landed_check(self, c: AtomicClaim) -> bool:
+        # FG-1: a "landed" check = a real validity lens (grounder/prover/executor) actually produced a
+        # verdict on this claim. (Every CheckRecord verdict is pass/fail/uncertain — there is no pending
+        # check; 'pending' is a claim STATUS.) redteam attacks live on the artifact, not claim.checks, so
+        # they are excluded. Used to decide whether the run could assess anything at all.
+        return any(ck.lens in ("grounder", "prover", "executor")
+                   and ck.verdict in ("pass", "fail", "uncertain")
+                   for ck in c.checks)
+
     def _b(self, reason: str, claim_id: str | None = None) -> dict:
         return {"claim_id": claim_id, "reason": reason}
 
@@ -239,8 +248,6 @@ class IdeaArtifact(BaseModel):
         # ===== ENTRY GATES =====
         if self.formal_claim is None and self.finalized:
             return NEEDS_EXPERIMENT, self._b("unformalizable")
-        if self.formal_claim and not self.formal_claim.falsifiable:
-            return NEEDS_EXPERIMENT, self._b("not_falsifiable")
         if self.faithfulness and self.faithfulness.retried and self.faithfulness.verdict == "no":
             return NEEDS_EXPERIMENT, self._b("unfaithful_drift")
         if self.faithfulness and self.faithfulness.retried and self.faithfulness.verdict == "narrowed":
@@ -255,6 +262,15 @@ class IdeaArtifact(BaseModel):
         if self._landed("fatal"):
             a = next(a for a in self.attacks if a.status == "landed" and a.severity == "fatal")
             return NEEDS_EXPERIMENT, self._b("severe_objection", a.target_claim_id)
+        # ===== LAST-RESORT: demonstrably unassessable (FG-1) =====
+        # not_falsifiable is no longer an entry-gate on an LLM flag — it fires only when the claim is
+        # flagged unfalsifiable AND no root received any landed check (the run genuinely could not assess
+        # anything). Placed BEFORE the graded needs-experiment reasons so "nothing landed" outranks
+        # "uncovered"/"inconclusive"; safe because the guard means no root has a landed check when it
+        # fires, so there is no checked root for it to mis-shadow.
+        if (self.formal_claim and not self.formal_claim.falsifiable
+                and not any(self._has_any_landed_check(c) for c in rs)):
+            return NEEDS_EXPERIMENT, self._b("not_falsifiable")
         # ===== NEEDS EXPERIMENT =====
         for c in rs:
             if c.status == "uncertain":

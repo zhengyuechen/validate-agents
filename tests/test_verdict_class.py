@@ -39,7 +39,9 @@ def test_verdict_class_draft():
     assert a.verdict_class == "draft"
 
 def test_verdict_class_ill_posed_not_falsifiable():
-    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
+    # FG-1: not_falsifiable is now the LAST-RESORT (falsifiable=False AND nothing landed), still ill_posed.
+    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False),
+            claim_graph=[claim("c1", checks=[])])          # nothing landed -> demonstrably unassessable
     assert a.status == "needs_experiment" and a.blocker["reason"] == "not_falsifiable"
     assert a.verdict_class == "ill_posed"
 
@@ -94,12 +96,14 @@ def test_verdict_class_promising_thin_attack_surface():
 # ---- render_report: ill_posed honesty (R2.2) ----
 
 def test_render_report_ill_posed_contains_reframe_not_experiment():
-    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
+    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False),
+            claim_graph=[claim("c1", checks=[])])          # FG-1: nothing landed -> ill_posed last-resort
     report = render_report(a)
     assert "not yet a testable claim" in report
 
 def test_render_report_ill_posed_does_not_say_needs_experiment_or_run_a():
-    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
+    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False),
+            claim_graph=[claim("c1", checks=[])])          # FG-1: nothing landed -> ill_posed last-resort
     report = render_report(a)
     # The status line may contain "needs_experiment" but no actionable "run a test" phrasing
     # Strip the status line itself before checking prose
@@ -110,7 +114,8 @@ def test_render_report_ill_posed_does_not_say_needs_experiment_or_run_a():
     assert "run a " not in prose.lower()
 
 def test_render_report_ill_posed_verdict_class_headline():
-    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
+    a = art(formal_claim=FormalClaim(statement="x", falsifiable=False),
+            claim_graph=[claim("c1", checks=[])])          # FG-1: nothing landed -> ill_posed last-resort
     report = render_report(a)
     assert "**Verdict:** ill_posed" in report
 
