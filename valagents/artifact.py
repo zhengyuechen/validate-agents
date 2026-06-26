@@ -153,6 +153,13 @@ class AtomicClaim(BaseModel):
             return "fail"
         uncertainties = [c for c in self.checks if c.verdict == "uncertain"]
         passes = [c for c in self.checks if c.verdict == "pass" and c.independent_sources >= 1]
+        # PC-D6: a definitional claim is a premise/convention — there is nothing empirical or
+        # derivational to code-witness, so it is ACCEPTED (not validated) on a non-refuting pass,
+        # without requiring an independent source. This is NOT say-so credit: it earns no
+        # independent_source itself (the checks are unchanged) and so can never stand in for one on
+        # any other claim; the exemption is type-gated to definitional here and nowhere else.
+        if not passes and self.type == "definitional":
+            passes = [c for c in self.checks if c.verdict == "pass"]
         if uncertainties:
             has_proof_pass = any(c.lens in ("prover", "executor") for c in passes)
             if (

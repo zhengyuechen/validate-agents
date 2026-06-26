@@ -58,6 +58,30 @@ async def test_empirical_claim_grounded_and_exhausted(cfg):
 
 
 @pytest.mark.asyncio
+async def test_mathematical_claim_credited_by_executor_not_prover():
+    # PC-1b: a mathematical claim earns its independent credit from a CODE-WITNESSED symbolic check
+    # (the legit path the stripped prover say-so used to fake). results_dir="" -> no artifacts written.
+    cfg = Config(default_model="fake", results_dir="")
+    s = store_with([AtomicClaim(id="m1", statement="recovers Newtonian gravity", type="mathematical")])
+
+    def router(agent, messages):
+        if agent == "computation_designer":          # real passing plan: lim GM/r^2 as r->oo = 0
+            return ("EXPRESSION: G*M/r**2 | VARIABLES: G,M,r | LIMIT_VARIABLE: r | LIMIT_POINT: oo "
+                    "| EXPECTED: 0 | EXPECTED_SOURCE: textbook | CONFIRM_IF: limit is 0 | REFUTE_IF: differs")
+        if agent == "prover":
+            return "DERIVATION: complete | GAPS: none | FATAL_GAP: no"
+        return "CLAIM: m1 | SUPPORT: uncertain | INDEPENDENT_SOURCES: 0 | BASIS: no literature"
+
+    await run_claim_checks(s, None, FakeLLM(router), cfg)
+    c = s.current.claim_graph[0]
+    execs = [ck for ck in c.checks if ck.lens == "executor"]
+    assert execs and execs[0].verdict == "pass" and execs[0].independent_sources == 1   # code-witnessed credit
+    assert c.status == "pass"
+    provers = [ck for ck in c.checks if ck.lens == "prover"]
+    assert provers and all(ck.independent_sources == 0 for ck in provers)               # PC-1a: prover self-credits nothing
+
+
+@pytest.mark.asyncio
 async def test_fanout_runs_more_lenses_on_uncertain_loadbearing(cfg):
     # empirical matrix = [grounder] only; grounder returns uncertain → fan-out adds the
     # diverse prover lens to reach fanout_N=2.  FakeLLM routes by agent name.

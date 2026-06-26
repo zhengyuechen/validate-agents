@@ -97,7 +97,25 @@ async def _run_lens(name: str, claim, fc, backend, llm, cfg, tick: int):
     return await prove_claim(claim, fc, llm, cfg, tick=tick)
 
 
-async def run_claim_checks(store: ArtifactStore, backend, llm, cfg: Config, tick0: int = 0) -> None:
+async def _symbolic_check(claim, fc, llm, cfg, tick: int, run_id):
+    """PC-1b: design + EXECUTE a symbolic check for a claim and return a code-witnessed CheckRecord
+    (lens='executor'), or None if no plan was designed or the result was uncertain (fall back to the
+    Prover). This is the LEGITIMATE derivation credit — a 'complete derivation' becomes a code-witnessed
+    computations/ entry, not prover say-so. Shared by run_claim_checks (math claims) and
+    inject_limit_checks (limit claims); the model designs the plan, the sandbox adjudicates."""
+    plan = await design_computation(claim, fc, llm, cfg)
+    if plan is None:
+        return None, None
+    from valagents.sandbox.executor import run_plan
+    from valagents.computation import verdict_to_check
+    adir = _computations_dir(cfg, run_id, claim.id)
+    verdict = run_plan(plan, cfg, artifacts_dir=adir)
+    if verdict.verdict == "uncertain":          # decisive only — uncertain falls back to the Prover (F2/§5)
+        return None, verdict
+    return verdict_to_check(verdict, tick=tick), verdict
+
+
+async def run_claim_checks(store: ArtifactStore, backend, llm, cfg: Config, tick0: int = 0, run_id=None) -> None:
     art = store.current
     fc = art.formal_claim
     tick = tick0
@@ -108,6 +126,17 @@ async def run_claim_checks(store: ArtifactStore, backend, llm, cfg: Config, tick
             tick += 1
             store.add_check(claim.id, rec)
             store.record({"event": "check", "claim": claim.id, "lens": name, "verdict": rec.verdict})
+
+        # PC-1b: a mathematical claim earns its independent credit from a CODE-WITNESSED symbolic check
+        # (the legit path the stripped prover say-so used to fake) — design + execute, mirror limit checks.
+        if claim.type == "mathematical":
+            rec, verdict = await _symbolic_check(claim, fc, llm, cfg, tick, run_id)
+            tick += 1
+            if verdict is not None:
+                store.record({"event": "symbolic_check", "claim": claim.id, "verdict": verdict.verdict,
+                              "computed": verdict.measured})
+            if rec is not None:
+                store.add_check(claim.id, rec)
 
         # fan-out: a load-bearing claim still `uncertain` gets DISTINCT diverse-type lenses
         # (each at most once) until fanout_N lenses have run or no diverse type remains.
@@ -383,18 +412,14 @@ async def inject_limit_checks(store: ArtifactStore, llm, cfg: Config, tick: int,
             "verdict": rec.verdict,
         })
 
-        # F2: augment the reasoned Prover with an EXECUTED symbolic check (Spec 2)
-        plan = await design_computation(claim, art.formal_claim, llm, cfg)
-        if plan is not None:
-            from valagents.sandbox.executor import run_plan
-            from valagents.computation import verdict_to_check
-            adir = _computations_dir(cfg, run_id, claim_id)
-            verdict = run_plan(plan, cfg, artifacts_dir=adir)
+        # F2 / PC-1b: augment the reasoned Prover with an EXECUTED symbolic check (shared helper)
+        rec2, verdict = await _symbolic_check(claim, art.formal_claim, llm, cfg, tick, run_id)
+        if verdict is not None:
             store.record({"event": "limit_executed", "claim": claim_id,
                           "verdict": verdict.verdict, "computed": verdict.measured})
-            if verdict.verdict != "uncertain":      # decisive only — uncertain falls back to the Prover (F2/§5)
-                store.add_check(claim_id, verdict_to_check(verdict, tick=tick))
-                tick += 1
+        if rec2 is not None:
+            store.add_check(claim_id, rec2)
+            tick += 1
 
         claim.exhausted = True
 
@@ -409,7 +434,7 @@ async def run(raw_idea: str, llm, cfg: Config, backend=None, run_id=None) -> Ide
         from valagents.agents.value_grounder import LiveFetcher
         resolver = LiveFetcher()
 
-    await run_claim_checks(store, backend, llm, cfg)
+    await run_claim_checks(store, backend, llm, cfg, run_id=run_id)
     await _whole_artifact_lenses(store, backend, llm, cfg, tick=1000, resolver=resolver, run_id=run_id)
     await inject_limit_checks(store, llm, cfg, tick=1500, run_id=run_id)
 
@@ -425,7 +450,7 @@ async def run(raw_idea: str, llm, cfg: Config, backend=None, run_id=None) -> Ide
         store.record({"event": "repair", "targets": targets, "ok": repaired is not None})
 
         version = store.current.version_id
-        await run_claim_checks(store, backend, llm, cfg, tick0=2000 * version)
+        await run_claim_checks(store, backend, llm, cfg, tick0=2000 * version, run_id=run_id)
         await _whole_artifact_lenses(store, backend, llm, cfg, tick=3000 * version, resolver=resolver, run_id=run_id)
 
     store.current.finalized = True

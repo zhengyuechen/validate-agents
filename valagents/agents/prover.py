@@ -47,7 +47,10 @@ async def prove_claim(
     gapped = derivation == "gapped"
     verdict = "fail" if refutes else ("uncertain" if fatal or gapped else "pass")
     basis = f"FATAL_DERIVATION_GAP: {gap_basis}" if fatal and not refutes else gap_basis
-    indep = 1 if verdict == "pass" and claim.type in {"definitional", "mathematical"} else 0
+    # PC-1a: a model 'DERIVATION: complete' is say-so, not a code-witnessed check — the prover NEVER
+    # self-credits. It keeps full refutation power (fail/uncertain above); it just cannot earn an
+    # independent source. Legitimate derivation credit is code-witnessed via the symbolic executor (PC-1b).
+    indep = 0
     return CheckRecord(
         lens="prover",
         verdict=verdict,

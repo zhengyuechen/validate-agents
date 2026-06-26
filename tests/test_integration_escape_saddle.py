@@ -56,6 +56,11 @@ def router(agent, messages):
         if "alpha" in content:
             return "DERIVATION: gapped | GAPS: B | FATAL_GAP: no"
         return "DERIVATION: complete | GAPS: none | FATAL_GAP: no"
+    if agent == "computation_designer":
+        # PC-1b: mathematical claim A earns credit from a code-witnessed symbolic check (a real passing
+        # plan: lim GM/r^2 as r->oo = 0), not the stripped prover say-so. B (mechanistic) stays the blocker.
+        return ("EXPRESSION: G*M/r**2 | VARIABLES: G,M,r | LIMIT_VARIABLE: r | LIMIT_POINT: oo "
+                "| EXPECTED: 0 | EXPECTED_SOURCE: textbook | CONFIRM_IF: limit is 0 | REFUTE_IF: differs")
     if agent == "predictor":
         return (
             "OBSERVABLE: mean escape time | EFFECT_SIZE: separates from GD | "

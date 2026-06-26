@@ -68,9 +68,10 @@ def _make_uncertain_plan() -> ComputationPlan:
 
 
 @pytest.mark.asyncio
-async def test_executor_uncertain_does_not_block_prover(monkeypatch, cfg):
-    """F2/§5: when run_plan returns uncertain, no executor CheckRecord is added and the
-    Prover pass stands (claim.status == 'pass', no executor lens in checks)."""
+async def test_executor_uncertain_prover_cannot_self_validate(monkeypatch, cfg):
+    """F2/§5 + PC-1a: when run_plan returns uncertain, no executor CheckRecord is added (the fallback
+    mechanic is intact) — but the Prover pass NO LONGER self-validates (PC-1a strip), so a math claim
+    with only an uncertain executor + prover pass does NOT reach 'pass' (status 'pending')."""
 
     # Build store with one known limit so inject_limit_checks creates a limit_recovery claim
     art = IdeaArtifact(
@@ -116,8 +117,10 @@ async def test_executor_uncertain_does_not_block_prover(monkeypatch, cfg):
     executor_checks = [ch for ch in claim.checks if ch.lens == "executor"]
     assert not executor_checks, "Uncertain executor check must not be added (F2/§5)"
 
-    # Prover pass is not downgraded — claim status is pass
-    assert claim.status == "pass", f"Expected 'pass', got '{claim.status}'"
+    # PC-1a: the prover can no longer self-credit, so an uncertain executor leaves the math claim
+    # without a code-witnessed check → it does NOT validate (status 'pending', not 'pass').
+    assert claim.status == "pending", f"Expected 'pending', got '{claim.status}'"
+    assert all(ch.independent_sources == 0 for ch in prover_checks)   # prover earns no independent credit
 
     # Audit event for the execution attempt IS recorded
     exec_events = [e for e in store.events if e.get("event") == "limit_executed"]

@@ -88,6 +88,18 @@ async def test_prover_definitional_wellformed(cfg):
 
 
 @pytest.mark.asyncio
+async def test_prover_pass_does_not_self_credit(cfg):
+    # PC-1a: 'DERIVATION: complete' is model say-so — the prover verdict may pass but must NEVER earn
+    # an independent source (was indep=1 for definitional/mathematical pre-PC-1a). Credit now requires
+    # a code-witness (grounder quote or PC-1b symbolic executor); the prover keeps only refutation power.
+    body = "DERIVATION: complete | GAPS: none | FATAL_GAP: no"
+    for t in ("definitional", "mathematical"):
+        rec = await prove_claim(AtomicClaim(id="d1", statement="x", type=t),
+                                FC, FakeLLM(lambda a, m: body), cfg)
+        assert rec.verdict == "pass" and rec.independent_sources == 0
+
+
+@pytest.mark.asyncio
 async def test_prover_fatal_gap_is_uncertain_and_repairable(cfg):
     body = "DERIVATION: gapped | GAPS: d1 | FATAL_GAP: yes"
     rec = await prove_claim(AtomicClaim(id="d1", statement="x", type="mathematical"),

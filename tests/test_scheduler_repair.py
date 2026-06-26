@@ -81,7 +81,10 @@ BASE = {
     "validation_designer": "TEST: t | CONFIRM_IF: c | REFUTE_IF: r | DISCRIMINATES_FROM: prior model | INFERENTIAL_STANDARD: p=0.05 | COST: low",
     "arbiter": "STATUS: internally_validated | LOAD_BEARING: c1 | DECISIVE_TEST: t",
     "prover": "DERIVATION: complete | GAPS: none | FATAL_GAP: no",
-    "computation_designer": "no plan",
+    # PC-1b: a mathematical/limit claim earns its credit from a code-witnessed symbolic check, not prover
+    # say-so. A real passing plan (lim GM/r^2 as r->oo = 0) so the injected limit claim validates via executor.
+    "computation_designer": ("EXPRESSION: G*M/r**2 | VARIABLES: G,M,r | LIMIT_VARIABLE: r | LIMIT_POINT: oo "
+                             "| EXPECTED: 0 | EXPECTED_SOURCE: textbook | CONFIRM_IF: limit is 0 | REFUTE_IF: differs"),
     "magnitude_designer": "",
 }
 

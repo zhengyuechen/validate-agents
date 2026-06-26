@@ -29,10 +29,17 @@ def _prover_llm(derivation: str, gaps: str, fatal_gap: str) -> FakeLLM:
 
 @pytest.mark.asyncio
 async def test_complete_reduction_claim_pass(cfg):
-    """A complete derivation → injected claim has status==pass, origin==limit_recovery, load_bearing."""
+    """A code-witnessed symbolic check → injected claim has status==pass (PC-1b: credit is the EXECUTED
+    symbolic check, not the prover's say-so 'complete'). origin==limit_recovery, load_bearing."""
     limits = [KnownLimit(limit="thermodynamic limit recovers Gibbs ensemble")]
     store = _make_store(limits)
-    llm = _prover_llm("complete", "none", "no")
+
+    def route(agent, messages):
+        if agent == "computation_designer":      # a real passing plan: lim GM/r^2 as r->oo = 0
+            return ("EXPRESSION: G*M/r**2 | VARIABLES: G,M,r | LIMIT_VARIABLE: r | LIMIT_POINT: oo "
+                    "| EXPECTED: 0 | EXPECTED_SOURCE: textbook | CONFIRM_IF: limit is 0 | REFUTE_IF: differs")
+        return "DERIVATION: complete | GAPS: none | FATAL_GAP: no"
+    llm = FakeLLM(route)
 
     await inject_limit_checks(store, llm, cfg, tick=0)
 
