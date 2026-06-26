@@ -17,11 +17,20 @@ def router(script):
 
 
 @pytest.mark.asyncio
-async def test_not_falsifiable_terminates(cfg):
+async def test_falsifiable_false_proceeds_and_records(cfg):
+    # FG-1: falsifiable=False no longer short-circuits entry — the run proceeds (so the prover/grounder/
+    # executor can assess the derivation); the flag is surfaced as a non-blocking record.
     s = store()
-    llm = FakeLLM(router({"formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: no"}))
+    llm = FakeLLM(router({
+        "formalizer": "CLAIM: x | VARIABLES: n | REGIME: any | FALSIFIABLE: no",
+        "faithfulness": "FAITHFUL: yes | BACK_TRANSLATION: same",
+        "decomposer": "CLAIM: c1 | TYPE: empirical | ROLE: novel_core | DEPENDS_ON: none | STATEMENT: effect exists",
+        "entailment": "COVERS: complete | MISSING: none",
+    }))
     proceed = await run_entry_gates(s, "seed", None, llm, cfg)
-    assert proceed is False and s.current.status == "needs_experiment" and s.current.blocker["reason"] == "not_falsifiable"
+    assert proceed is True
+    assert s.current.formal_claim.falsifiable is False
+    assert any(e.get("event") == "formalizer_falsifiable" and e.get("value") is False for e in s.events)
 
 
 @pytest.mark.asyncio

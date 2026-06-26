@@ -27,10 +27,10 @@ async def run_entry_gates(store: ArtifactStore, raw_idea: str, backend, llm, cfg
         store.record({"event": "entry_gate", "reason": "unformalizable", "stage": "formalizer"})
         return False
     store.set("formal_claim", fc)
-    if not fc.falsifiable:
-        art.finalized = True
-        store.record({"event": "entry_gate", "reason": "not_falsifiable"})
-        return False
+    # FG-1: falsifiable is SURFACED, not an entry-gate. A falsifiable=False claim flows into faithfulness
+    # (whose existing narrowed/no re-formalize retry catches existential abstraction — FG-1/FG-2 compose),
+    # decompose, and the lenses; `not_falsifiable` is now a code-witnessed last-resort verdict in _evaluate.
+    store.record({"event": "formalizer_falsifiable", "value": fc.falsifiable})
 
     # 2. Faithfulness, with one re-formalization retry on narrowed/no
     f = await faithfulness_check(raw_idea, fc, llm, cfg, retried=False)
