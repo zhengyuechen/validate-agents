@@ -2,6 +2,7 @@
 from __future__ import annotations
 from valagents.store import ArtifactStore
 from valagents.config import Config
+from valagents.concurrency import bounded_gather
 from valagents.artifact import IdeaArtifact, AtomicClaim
 from valagents.agents.formalizer import formalize
 from valagents.agents.faithfulness import faithfulness_check
@@ -115,46 +116,60 @@ async def _symbolic_check(claim, fc, llm, cfg, tick: int, run_id):
     return verdict_to_check(verdict, tick=tick), verdict
 
 
+async def _check_one_claim(store, claim, fc, backend, llm, cfg, tick_base: int, run_id) -> None:
+    """One claim's full check chain (lenses → PC-1b symbolic → fan-out → exhausted). Verbatim the old
+    per-claim loop body with a LOCAL tick = tick_base, so claims can run concurrently in disjoint tick
+    blocks. Operates only on its own `claim` (isolated `claim.checks`/`claim.status`); store appends are
+    synchronous (single-writer), so cooperative interleaving cannot race it (Spec-4)."""
+    tick = tick_base
+    lenses = list(_LENS_BY_TYPE.get(claim.type, ["grounder"]))
+    for name in lenses:
+        rec = await _run_lens(name, claim, fc, backend, llm, cfg, tick)
+        tick += 1
+        store.add_check(claim.id, rec)
+        store.record({"event": "check", "claim": claim.id, "lens": name, "verdict": rec.verdict})
+
+    # PC-1b: a mathematical claim earns its independent credit from a CODE-WITNESSED symbolic check
+    # (the legit path the stripped prover say-so used to fake) — design + execute, mirror limit checks.
+    if claim.type == "mathematical":
+        rec, verdict = await _symbolic_check(claim, fc, llm, cfg, tick, run_id)
+        tick += 1
+        if verdict is not None:
+            store.record({"event": "symbolic_check", "claim": claim.id, "verdict": verdict.verdict,
+                          "computed": verdict.measured})
+        if rec is not None:
+            store.add_check(claim.id, rec)
+
+    # fan-out: a load-bearing claim still `uncertain` gets DISTINCT diverse-type lenses
+    # (each at most once) until fanout_N lenses have run or no diverse type remains.
+    if claim.load_bearing and claim.status == "uncertain":
+        run_types = set(lenses)
+        for name in ("grounder", "prover"):
+            if len(claim.checks) >= cfg.gate.fanout_N:
+                break
+            if name in run_types:
+                continue
+            rec = await _run_lens(name, claim, fc, backend, llm, cfg, tick); tick += 1
+            store.add_check(claim.id, rec)
+            store.record({"event": "fanout", "claim": claim.id, "lens": name, "verdict": rec.verdict})
+            run_types.add(name)
+        if len(claim.checks) < cfg.gate.fanout_N:
+            store.record({"event": "fanout_limited", "claim": claim.id})
+
+    claim.exhausted = True
+
+
 async def run_claim_checks(store: ArtifactStore, backend, llm, cfg: Config, tick0: int = 0, run_id=None) -> None:
     art = store.current
     fc = art.formal_claim
-    tick = tick0
-    for claim in art.claim_graph:
-        lenses = list(_LENS_BY_TYPE.get(claim.type, ["grounder"]))
-        for name in lenses:
-            rec = await _run_lens(name, claim, fc, backend, llm, cfg, tick)
-            tick += 1
-            store.add_check(claim.id, rec)
-            store.record({"event": "check", "claim": claim.id, "lens": name, "verdict": rec.verdict})
-
-        # PC-1b: a mathematical claim earns its independent credit from a CODE-WITNESSED symbolic check
-        # (the legit path the stripped prover say-so used to fake) — design + execute, mirror limit checks.
-        if claim.type == "mathematical":
-            rec, verdict = await _symbolic_check(claim, fc, llm, cfg, tick, run_id)
-            tick += 1
-            if verdict is not None:
-                store.record({"event": "symbolic_check", "claim": claim.id, "verdict": verdict.verdict,
-                              "computed": verdict.measured})
-            if rec is not None:
-                store.add_check(claim.id, rec)
-
-        # fan-out: a load-bearing claim still `uncertain` gets DISTINCT diverse-type lenses
-        # (each at most once) until fanout_N lenses have run or no diverse type remains.
-        if claim.load_bearing and claim.status == "uncertain":
-            run_types = set(lenses)
-            for name in ("grounder", "prover"):
-                if len(claim.checks) >= cfg.gate.fanout_N:
-                    break
-                if name in run_types:
-                    continue
-                rec = await _run_lens(name, claim, fc, backend, llm, cfg, tick); tick += 1
-                store.add_check(claim.id, rec)
-                store.record({"event": "fanout", "claim": claim.id, "lens": name, "verdict": rec.verdict})
-                run_types.add(name)
-            if len(claim.checks) < cfg.gate.fanout_N:
-                store.record({"event": "fanout_limited", "claim": claim.id})
-
-        claim.exhausted = True
+    # Spec-4: claims are independent (claim_graph is not mutated here — magnitude's mutation is in the
+    # later tail) → check them concurrently under the bounded cap, each in a disjoint tick block.
+    BLOCK = 10   # max lenses+symbolic+fanout per claim; keeps tick blocks disjoint
+    await bounded_gather(
+        [_check_one_claim(store, c, fc, backend, llm, cfg, tick0 + i * BLOCK, run_id)
+         for i, c in enumerate(art.claim_graph)],
+        cfg.gate.max_concurrency,
+    )
 
     if fc is not None:
         store.set("derivation", await build_derivation(fc, art.claim_graph, llm, cfg))
