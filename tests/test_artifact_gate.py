@@ -38,6 +38,16 @@ def test_refuted_definitional_premise_still_blocks():
                       load_bearing=True, exhausted=True)
     assert art(claim_graph=[bad, claim("c1")]).status == "refuted"
 
+def test_purely_definitional_roots_do_not_strict_validate():
+    # PC-D6 guard: the definitional exemption keys on the decomposer's (LLM) `type` label, so an
+    # all-definitional root set would satisfy the witness requirement on ZERO real checks. The guard
+    # requires >=1 NON-definitional root with a real code-witnessed check, so a premises-only artifact
+    # cannot reach validated even though each premise is individually accepted (status=pass via PC-D6).
+    d = lambda cid: AtomicClaim(id=cid, statement="define", type="definitional",
+                                checks=[CheckRecord(lens="prover", verdict="pass", independent_sources=0)],
+                                load_bearing=True, exhausted=True)
+    assert art(claim_graph=[d("d1"), d("d2")]).status == "draft"   # accepted-but-unwitnessed -> not validated
+
 # --- entry gates (I3) ---
 def test_not_falsifiable():
     a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))

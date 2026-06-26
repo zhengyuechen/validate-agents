@@ -272,6 +272,11 @@ class IdeaArtifact(BaseModel):
         # ===== VALIDATED: STRICT =====
         if (rs and all(c.status == "pass" for c in rs)
                 and all(self._has_independent_external_check(c) for c in rs)
+                # PC-D6 guard: the definitional-premise exemption keys on the decomposer's (LLM) `type`
+                # label, so an all-definitional root set would satisfy the witness requirement above on
+                # ZERO real checks. Require >=1 NON-definitional root carrying a real code-witnessed check
+                # — an artifact must rest on at least one genuine witness, never validate on premises alone.
+                and any(c.type != "definitional" and self._has_independent_external_check(c) for c in rs)
                 and (self.faithfulness and self.faithfulness.verdict == "yes")
                 and (self.coverage and self.coverage.verdict == "complete")
                 and not self._thin_attack_surface()
