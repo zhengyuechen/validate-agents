@@ -223,6 +223,12 @@ class IdeaArtifact(BaseModel):
         return len(set(s.attempted)) < self.min_attack_categories
 
     def _has_independent_external_check(self, c: AtomicClaim) -> bool:
+        # PC-D6 (second gate site — paired with AtomicClaim.status): a definitional claim is a
+        # premise/convention accepted on a non-refuting pass without an independent code-witness. Same
+        # type-gate as status; it earns no independent_source of its own, so the all-roots strict gate
+        # still requires a REAL code-witnessed check on every NON-definitional root claim.
+        if c.type == "definitional":
+            return any(ck.verdict == "pass" for ck in c.checks)
         return any(ck.verdict == "pass" and ck.independent_sources >= 1 for ck in c.checks)
 
     def _b(self, reason: str, claim_id: str | None = None) -> dict:

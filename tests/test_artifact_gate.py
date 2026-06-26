@@ -21,6 +21,23 @@ def art(**kw):
 def test_internally_validated():
     assert art().status == "internally_validated"
 
+def test_definitional_premise_does_not_block_strict_validation():
+    # PC-D6 (both gate sites): a load-bearing definitional PREMISE (non-refuting prover pass, indep=0)
+    # is accepted without an independent check and does NOT block validation, while the substantive core
+    # claim still carries a REAL code-witnessed independent check. Fails without the _has_independent_
+    # external_check exemption (the strict gate's second site) — guards against the half-wired PC-D6.
+    premise = AtomicClaim(id="d1", statement="define X", type="definitional",
+                          checks=[CheckRecord(lens="prover", verdict="pass", independent_sources=0)],
+                          load_bearing=True, exhausted=True)
+    assert art(claim_graph=[premise, claim("c1")]).status == "internally_validated"
+
+def test_refuted_definitional_premise_still_blocks():
+    # the exemption never rescues a refuted premise — a failing check drives REFUTED.
+    bad = AtomicClaim(id="d1", statement="define X", type="definitional",
+                      checks=[CheckRecord(lens="redteam", verdict="fail")],
+                      load_bearing=True, exhausted=True)
+    assert art(claim_graph=[bad, claim("c1")]).status == "refuted"
+
 # --- entry gates (I3) ---
 def test_not_falsifiable():
     a = art(formal_claim=FormalClaim(statement="x", falsifiable=False))
