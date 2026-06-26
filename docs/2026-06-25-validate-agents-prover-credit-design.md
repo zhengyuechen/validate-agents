@@ -49,7 +49,11 @@ indep = 0   # PC-1a: a model 'DERIVATION: complete' is say-so, not a code-witnes
 
 **Confirmed effect:** C1/C2 (definitional) drop from `status=pass` to `uncertain` (no independent check). That is the correct cardinal-rule outcome — a definition is not "validated" by the model judging it coherent.
 
-**Honest boundary it exposes (flagged, not solved here):** with say-so stripped and no executor witness possible for a *definition*, a definitional claim can never earn an independent check. That is arguably correct (definitions are conventions/premises, not empirically/derivationally validated). Whether the gate should **exempt** definitional/background claims from the independent-check requirement (a role-based refinement) is a separate question for the `artifact.py` owner — **it is NOT solved by letting definitions self-credit on say-so.** PC-1a deliberately leaves definitional claims as honestly-uncredited; the exemption, if wanted, is its own change.
+**Necessary coupled fast-follow — PC-D6 (definitional exemption), NOT optional.** Trace PC-1a through the gate: after the strip, a **definitional** claim has *no path to credit at all* — the grounder credits empirical/mechanistic claims (literature), the executor (PC-1b) credits mathematical claims (algebra), but a definition has neither a literature witness nor algebra to run. So by `AtomicClaim.status` (artifact.py:155, `verdict=="pass" and independent_sources>=1`) and the load-bearing all-pass evaluation (`root_ancestors` / `_evaluate`), **any artifact with a load-bearing definitional claim becomes permanently un-validatable.** This is not hypothetical: **C1 and C2 in the test run are `type=definitional` and `load_bearing=True`.** For the false claim it was harmless (refuted on C5), but a *true* artifact resting on a definitional premise would read `uncertain` forever — vacuous over-blocking, the same failure mode as a premature ≥2 bar.
+
+So PC-1a (fail-safe, ships now) and PC-D6 must be decided **in the same cycle.** The resolution: **exempt definitional claims as premises** — do not require an independent code-adjudicated check of a *convention*. This is categorically different from letting a definition self-credit on say-so (the thing PC-1a removes): a premise is *accepted as scaffolding*, not *asserted as validated*.
+
+**Implementation constraint (must be authorized explicitly):** the exemption is a **gate-logic change in `artifact.py`** — there is no gate-pure substitute (it lives in `AtomicClaim.status` / `_evaluate`, the load-bearing all-pass path). `artifact.py` is under the standing **never-modify** rule (gate purity; Popper is the only documented exception). PC-D6 therefore requires the gate owner's explicit go before the edit is made; PC-1a and PC-1b do not touch `artifact.py` and proceed independently. The decided resolution is recorded here; the minimal gate edit (definitional claims exempt from the independent-check requirement, while remaining refutable) is presented for authorization, not made silently.
 
 **Cost:** small + surgical (one line + the comment). The behavior change touches only **definitional/mathematical** claims whose validating check was a prover pass (empirical/mechanistic claims already get prover `indep=0`, so the common grounder-validated flows are unaffected). Whichever tests encoded a definitional/mathematical prover pass *as the credit* must be updated — identified by **running the suite**, not assumed.
 
@@ -81,6 +85,12 @@ mathematical claim
 - **Test target: a genuinely derivational claim** — Ran's QM meta-symmetry (a math claim with checkable algebra), **not** this empirical superconductivity seed (which has nothing to derive). The empirical seed is exactly why PC-1b cannot be validated on the current run.
 
 **Cardinal-rule integrity:** the model still *proposes* the derivation steps (as it proposes computation plans today); **code executes and adjudicates**. A symbolic pass is credited because sympy verified the equality in the sandbox, not because the model said "complete." Same firewall as every other executor check.
+
+**Honest ceiling (what a PC-1b credit does NOT mean).** Like every spec in this sequence (citation-circle's disjoint-author collusion, grounding's abstract-only substrate), PC-1b has an inherent limit it must state, because "code executes and adjudicates" is true but incomplete. A symbolic pass certifies that the model's **encoding** of the derivation is internally valid — **not that the claim is true.** Two gaps live in that distinction, both shared with the existing magnitude/simulation executors:
+- **Encoding faithfulness:** the model's NL→sympy translation can be *faithfully wrong* — sympy then verifies the encoding, not the claim. (The same residue magnitude/simulation already carry: code witnesses what was encoded.)
+- **Validity ≠ truth:** a flawless derivation from false premises passes every step. The executor witnesses derivational *validity*, not the truth of the premises.
+
+So a PC-1b credit means exactly "**this derivational step is code-witnessed valid**" — one leg of the tripod (math / independent-physics / literature), narrowable by redundant independent encodings and dimensional/limit invariants, **not closed.** The basis text must say this, so a reader never mistakes an executor pass for "the math proves the claim."
 
 ---
 
@@ -115,11 +125,11 @@ mathematical claim
 - **PC-D3 — legitimate credit is restored via the *existing* symbolic executor path** (`verdict_to_check`, `computation.py:93`), not a new credit mechanism. (PC-1b.)
 - **PC-D4 — symbolic-only in 1b; definitional and non-symbolic claims earn no prover/executor credit.** Honest under-credit over fake credit. Definitions are premises, not checks.
 - **PC-D5 — test 1b on a derivational claim (Ran's QM), not the empirical seed.** The empirical seed has nothing to derive, which is why it can't validate this capability.
-- **PC-D6 — definitional-claim exemption is out of scope.** Whether the gate should exempt definitional/background claims from the independent-check requirement is a separate role-based `artifact.py` question; it is not solved by say-so credit.
+- **PC-D6 — definitional-claim exemption is a NECESSARY coupled fast-follow, decided in this cycle.** Post-PC-1a a load-bearing definitional claim is permanently un-validatable (vacuous over-blocking; C1/C2 are exactly this). Resolution: **exempt definitional claims as premises** (don't require an independent check of a convention) — categorically distinct from say-so self-credit. Implementation is a gate-logic change in `artifact.py` (no gate-pure substitute), so it requires explicit owner authorization to override the never-modify rule; presented for go, not made silently. PC-1a/PC-1b proceed independently of it.
 
 ---
 
 ## 8. Open questions
 
-- **Definitional/background claims after the strip** (PC-D6): do they need a role-based gate exemption, or is "honestly uncredited, used as premise" sufficient? Separate decision; does not block PC-1a.
+- **PC-D6 gate authorization:** the resolution is decided (exempt definitional claims as premises) and necessary in-cycle, but it requires an `artifact.py` gate edit under the never-modify rule. Pending the owner's explicit go on that specific edit. PC-1a ships fail-safe meanwhile (it only ever removes validations); the window before PC-D6 over-blocks *true definitional-load-bearing* artifacts only.
 - **1b derivation-step representation:** the concrete schema by which a mathematical claim's derivation becomes a symbolic `ComputationPlan` (which step kinds — identity, equality, limit, dimensional check — are in v1). Resolved in the PC-1b plan, against the existing `ComputationPlan` kinds.
