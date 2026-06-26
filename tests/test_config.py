@@ -11,6 +11,9 @@ def test_grounding_query_planner_defaults():
     assert c.grounding.query_planner is True
     assert c.grounding.widen_min_results == 3
 
+def test_gate_max_concurrency_default():
+    assert Config(default_model="m").gate.max_concurrency == 8
+
 def test_config_yaml_roundtrip(tmp_path):
     p = tmp_path / "c.yaml"
     p.write_text("default_model: x\ngate:\n  fanout_N: 5\n")

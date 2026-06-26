@@ -24,6 +24,7 @@ class GateCfg(BaseModel):
     min_attack_categories: int = 2  # categories the Red-team must attempt for internally_validated
     fanout_N: int = 2               # diverse-type lenses on a load-bearing uncertain node before finalize
     repair_cap: int = 3             # max repair versions before finalize
+    max_concurrency: int = 8        # Spec-4: max in-flight agent calls across a gathered fan-out
 
 class SandboxCfg(BaseModel):
     enabled: bool = True
